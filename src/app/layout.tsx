@@ -3,9 +3,10 @@ import type {Metadata} from 'next';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 import StoreProvider from './StoreProvider';
+import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
-  title: 'Emploi du Temps',
+  title: 'ShudWelcome - Emploi du Temps',
   description: 'Application de gestion d\'emploi du temps, construite avec Next.js et Firebase Studio',
 };
 
@@ -23,7 +24,9 @@ export default function RootLayout({
       </head>
       <body className="font-body antialiased">
         <StoreProvider>
-          {children}
+          <AppShell>
+            {children}
+          </AppShell>
           <Toaster />
         </StoreProvider>
       </body>
