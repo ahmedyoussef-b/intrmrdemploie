@@ -4,11 +4,12 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ScolaTimeLogo } from './ScolaTimeLogo';
-import { Home, Wand, Settings } from 'lucide-react';
+import { Home, Sparkles, Settings, Puzzle } from 'lucide-react';
 
 const navItems = [
   { href: '/', label: 'Tableau de Bord', icon: Home },
-  { href: '/wizard', label: 'Générateur', icon: Wand },
+  { href: '/wizard', label: 'Générateur', icon: Sparkles },
+  { href: '/admin/constraints', label: 'Contraintes', icon: Puzzle },
 ];
 
 export function AppSidebar() {
@@ -39,10 +40,12 @@ export function AppSidebar() {
         })}
       </nav>
       <div className="mt-auto p-4 border-t">
+        <Link href="/admin">
          <Button variant="outline" className="w-full justify-start">
             <Settings className="mr-3 h-5 w-5" />
-            Paramètres
+            Administration
          </Button>
+        </Link>
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Wand, Users, BookOpen, MapPin } from "lucide-react";
+import { Sparkles, Users, BookOpen, MapPin } from "lucide-react";
 import Link from 'next/link';
 
 export default function DashboardPage() {
@@ -64,7 +64,7 @@ export default function DashboardPage() {
             </div>
             <Link href="/wizard">
               <Button size="lg">
-                <Wand className="mr-2 h-5 w-5" /> Lancer le Générateur
+                <Sparkles className="mr-2 h-5 w-5" /> Lancer le Générateur
               </Button>
             </Link>
           </div>
