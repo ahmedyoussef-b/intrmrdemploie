@@ -167,55 +167,68 @@ const ValidationStep: React.FC<ValidationStepProps> = ({ wizardData, onGeneratio
 
         for (let scheduleIndex = 0; scheduleIndex < classSchedule.length && hoursPlaced < weeklyHoursToPlace; ) {
             const { day, time } = classSchedule[scheduleIndex];
-            const trackerKey = `${c.id}-${day}-${subject.id}`;
-            const hoursOnDay = dailyHoursTracker[trackerKey] || 0;
 
             if(classOccupancy[`${day}-${time}`]) {
                 scheduleIndex++;
                 continue;
             }
 
-            let lessonSlots = 1;
-            if (['Éducation Physique et Sportive', 'Sciences de la Vie et de la Terre', 'Français'].includes(subject.name) && (weeklyHoursToPlace - hoursPlaced) >= 2) {
-                lessonSlots = 2;
-            }
-            if (hoursOnDay + lessonSlots > 2) {
-                lessonSlots = 1;
-            }
+            const trackerKey = `${c.id}-${day}-${subject.id}`;
+            const hoursOnDay = dailyHoursTracker[trackerKey] || 0;
 
+            const preferDoubleSlot = ['Éducation Physique et Sportive', 'Sciences de la Vie et de la Terre', 'Français'].includes(subject.name);
+            let attemptSlots = 1;
+
+            if (preferDoubleSlot && (weeklyHoursToPlace - hoursPlaced) >= 2 && (hoursOnDay === 0)) {
+              attemptSlots = 2;
+            } else if (hoursOnDay >= 2) {
+              scheduleIndex++;
+              continue;
+            }
+            
+            let finalSlots = 0;
             let assignedTeacher: TeacherWithDetails | undefined;
             let assignedRoom: Classroom | undefined;
-            let isBlockAvailable = false;
 
-            for (const teacher of potentialTeachers) {
+            while(attemptSlots > 0) {
+              let isBlockAvailable = false;
+              for (const teacher of potentialTeachers) {
                 for (const room of rooms) {
-                    let canBook = true;
-                    for(let i=0; i < lessonSlots; i++) {
-                        const currentSlotIndex = scheduleIndex + i;
-                        if (currentSlotIndex >= classSchedule.length) { canBook = false; break; }
-
-                        const { day: d, time: t } = classSchedule[currentSlotIndex];
-                        if (d !== day) { canBook = false; break; }
-
-                        if (teacherOccupancy[`${teacher.id}-${d}-${t}`] || roomOccupancy[`${room.id}-${d}-${t}`] || classOccupancy[`${d}-${t}`]) {
-                            canBook = false;
-                            break;
-                        }
-                    }
-                    if(canBook) {
-                        assignedTeacher = teacher;
-                        assignedRoom = room;
-                        isBlockAvailable = true;
-                        break; 
-                    }
+                  let canBook = true;
+                  for(let i=0; i < attemptSlots; i++) {
+                      const currentSlotIndex = scheduleIndex + i;
+                      if (currentSlotIndex >= classSchedule.length || classSchedule[currentSlotIndex].day !== day) {
+                          canBook = false;
+                          break;
+                      }
+                      const { day: d, time: t } = classSchedule[currentSlotIndex];
+                      if (teacherOccupancy[`${teacher.id}-${d}-${t}`] || roomOccupancy[`${room.id}-${d}-${t}`] || classOccupancy[`${d}-${t}`]) {
+                          canBook = false;
+                          break;
+                      }
+                  }
+                  if(canBook) {
+                      assignedTeacher = teacher;
+                      assignedRoom = room;
+                      isBlockAvailable = true;
+                      break; 
+                  }
                 }
                 if(isBlockAvailable) break;
+              }
+
+              if(isBlockAvailable) {
+                finalSlots = attemptSlots;
+                break;
+              } else {
+                attemptSlots--;
+              }
             }
 
-            if (isBlockAvailable && assignedTeacher && assignedRoom) {
+            if (finalSlots > 0 && assignedTeacher && assignedRoom) {
                 const [startHour, startMinute] = time.split(':').map(Number);
                 const startTime = new Date(2024, 1, 1, startHour, startMinute);
-                const endTime = new Date(startTime.getTime() + (sessionDuration * lessonSlots) * 60000);
+                const endTime = new Date(startTime.getTime() + (sessionDuration * finalSlots) * 60000);
 
                 lessonsToCreate.push({ 
                     name: `${subject.name} - ${c.abbreviation}`, 
@@ -228,16 +241,16 @@ const ValidationStep: React.FC<ValidationStepProps> = ({ wizardData, onGeneratio
                     classroomId: assignedRoom.id 
                 });
 
-                for(let i=0; i < lessonSlots; i++) {
+                for(let i=0; i < finalSlots; i++) {
                     const { day: d, time: t } = classSchedule[scheduleIndex + i];
                     teacherOccupancy[`${assignedTeacher.id}-${d}-${t}`] = true;
                     roomOccupancy[`${assignedRoom.id}-${d}-${t}`] = true;
                     classOccupancy[`${d}-${t}`] = true;
                 }
 
-                dailyHoursTracker[trackerKey] = (dailyHoursTracker[trackerKey] || 0) + lessonSlots;
-                hoursPlaced += lessonSlots;
-                scheduleIndex += lessonSlots;
+                dailyHoursTracker[trackerKey] = (dailyHoursTracker[trackerKey] || 0) + finalSlots;
+                hoursPlaced += finalSlots;
+                scheduleIndex += finalSlots;
             } else {
                 scheduleIndex++;
             }

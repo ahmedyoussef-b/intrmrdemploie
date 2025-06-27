@@ -126,7 +126,7 @@ async function main() {
                   surname: 'Dupont',
                   phone: '0601020304',
                   address: '1 rue de la Paix',
-                  subjects: { connect: [{ id: createdSubjects[0].id }, { id: createdSubjects[3].id }] },
+                  subjects: { connect: [{ id: createdSubjects[0].id }, { id: createdSubjects[3].id }, { id: createdSubjects[4].id }] },
                   sex: UserSex.MALE,
                   classes: { connect: [{ id: createdClasses[2].id }, { id: createdClasses[3].id }] },
               }
