@@ -131,6 +131,36 @@ export const deleteProfesseur = createAsyncThunk(
     }
 );
 
+export const assignSubjectsToTeacher = createAsyncThunk(
+  'professeurs/assignSubjects',
+  async ({ teacherId, subjectIds }: { teacherId: string, subjectIds: number[] }, { rejectWithValue }) => {
+    console.log(`🔵 [professeursSlice] Attempting to assign subjects to teacher ${teacherId}:`, subjectIds);
+    try {
+      const response = await fetch(`/api/professeurs/${teacherId}/matieres`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subjectIds }),
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`🔴 [professeursSlice] Failed to assign subjects (API responded with ${response.status}):`, errorText);
+        try {
+            const errorData = JSON.parse(errorText);
+            return rejectWithValue(errorData.message || "Échec de l'assignation");
+        } catch (e) {
+            return rejectWithValue(errorText || "Échec de l'assignation");
+        }
+      }
+      const data = await response.json();
+      console.log(`🟢 [professeursSlice] Successfully assigned subjects to teacher ${teacherId}:`, data);
+      return data as TeacherWithDetails;
+    } catch (error: any) {
+      console.error(`🔴 [professeursSlice] Failed to assign subjects to teacher ${teacherId} (Network/Parsing Error):`, error);
+      return rejectWithValue(error.message);
+    }
+  }
+);
+
 export const professeursSlice = createSlice({
   name: 'professeurs',
   initialState,
@@ -159,6 +189,14 @@ export const professeursSlice = createSlice({
       })
       .addCase(updateProfesseur.fulfilled, (state, action: PayloadAction<TeacherWithDetails>) => {
         console.log('✅ [professeursSlice] updateProfesseur.fulfilled');
+        const index = state.items.findIndex(p => p.id === action.payload.id);
+        if (index !== -1) {
+            state.items[index] = action.payload;
+        }
+        state.status = 'succeeded';
+      })
+       .addCase(assignSubjectsToTeacher.fulfilled, (state, action: PayloadAction<TeacherWithDetails>) => {
+        console.log('✅ [professeursSlice] assignSubjectsToTeacher.fulfilled');
         const index = state.items.findIndex(p => p.id === action.payload.id);
         if (index !== -1) {
             state.items[index] = action.payload;

@@ -4,18 +4,27 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { UserPlus, Trash2, Calendar, Loader2 } from 'lucide-react';
-import type { TeacherWithDetails, CreateTeacherPayload } from '@/types';
+import { UserPlus, Trash2, Calendar, Loader2, BookCopy } from 'lucide-react';
+import type { TeacherWithDetails, CreateTeacherPayload, Subject } from '@/types';
 import { useAppDispatch } from '@/hooks/redux-hooks';
-import { addProfesseur, deleteProfesseur } from '@/lib/features/professeurs/professeursSlice';
+import { addProfesseur, deleteProfesseur, assignSubjectsToTeacher } from '@/lib/features/professeurs/professeursSlice';
 import { useToast } from '@/hooks/use-toast';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 interface TeachersFormProps {
   data: TeacherWithDetails[];
   schoolDays: string[];
+  allSubjects: Subject[];
 }
 
-const TeachersForm: React.FC<TeachersFormProps> = ({ data, schoolDays }) => {
+const TeachersForm: React.FC<TeachersFormProps> = ({ data, schoolDays, allSubjects }) => {
   const dispatch = useAppDispatch();
   const { toast } = useToast();
   const [newTeacher, setNewTeacher] = useState<CreateTeacherPayload>({
@@ -52,6 +61,29 @@ const TeachersForm: React.FC<TeachersFormProps> = ({ data, schoolDays }) => {
 
   const handleDeleteTeacher = (id: string) => {
     dispatch(deleteProfesseur(id));
+  };
+  
+  const handleSubjectAssign = (teacher: TeacherWithDetails, subjectId: number, isAssigned: boolean) => {
+    const currentSubjectIds = teacher.subjects.map(s => s.id);
+    const newSubjectIds = isAssigned
+      ? [...currentSubjectIds, subjectId]
+      : currentSubjectIds.filter(id => id !== subjectId);
+    
+    dispatch(assignSubjectsToTeacher({ teacherId: teacher.id, subjectIds: newSubjectIds }))
+      .unwrap()
+      .then(() => {
+        toast({
+          title: "Mise à jour réussie",
+          description: `Les matières de ${teacher.name} ${teacher.surname} ont été mises à jour.`
+        });
+      })
+      .catch((error) => {
+        toast({
+          variant: 'destructive',
+          title: "Erreur de mise à jour",
+          description: error || "Une erreur est survenue lors de l'assignation."
+        });
+      });
   };
 
   return (
@@ -163,19 +195,6 @@ const TeachersForm: React.FC<TeachersFormProps> = ({ data, schoolDays }) => {
                     <div className="flex items-center space-x-2 mb-2">
                       <h4 className="font-semibold text-lg">{teacher.name} {teacher.surname}</h4>
                     </div>
-                    
-                    <div className="space-y-2">
-                      <div>
-                        <p className="text-sm font-medium text-gray-700 mb-1">Matières enseignées:</p>
-                        <div className="flex flex-wrap gap-1">
-                          {teacher.subjects.length > 0 ? teacher.subjects.map(subject => (
-                            <Badge key={subject.id} variant="secondary" className="text-xs">
-                              {subject.name}
-                            </Badge>
-                          )) : <span className="text-xs text-gray-500">Aucune</span>}
-                        </div>
-                      </div>
-                    </div>
                   </div>
                   
                   <Button
@@ -187,6 +206,42 @@ const TeachersForm: React.FC<TeachersFormProps> = ({ data, schoolDays }) => {
                     <Trash2 size={16} />
                   </Button>
                 </div>
+                 <div className="space-y-3">
+                    <div>
+                      <p className="text-sm font-medium text-gray-700 mb-1">Matières enseignées:</p>
+                      <div className="flex flex-wrap gap-1">
+                        {teacher.subjects.length > 0 ? teacher.subjects.map(subject => (
+                          <Badge key={subject.id} variant="secondary" className="text-xs">
+                            {subject.name}
+                          </Badge>
+                        )) : <span className="text-xs text-gray-500">Aucune matière assignée</span>}
+                      </div>
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm" className="mt-2 w-full md:w-auto">
+                          <BookCopy className="mr-2 h-4 w-4" />
+                          Assigner les Matières
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent className="w-64">
+                        <DropdownMenuLabel>Sélectionner les matières</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        {allSubjects.map(subject => (
+                          <DropdownMenuCheckboxItem
+                            key={subject.id}
+                            checked={teacher.subjects.some(s => s.id === subject.id)}
+                            onCheckedChange={(checked) => {
+                              handleSubjectAssign(teacher, subject.id, checked as boolean)
+                            }}
+                            onSelect={(e) => e.preventDefault()}
+                          >
+                            {subject.name}
+                          </DropdownMenuCheckboxItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
               </Card>
             ))}
           </div>

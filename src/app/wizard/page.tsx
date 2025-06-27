@@ -69,7 +69,6 @@ export default function WizardPage() {
       startTime: '08:00',
       endTime: '17:00',
       schoolDays: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
-      sessionDuration: 60
     });
   
     const wizardData: WizardData = {
@@ -109,9 +108,9 @@ export default function WizardPage() {
         case 'classes':
           return <ClassesForm data={classes} />;
         case 'subjects':
-          return <SubjectsForm data={subjects} classes={classes} teachers={teachers} />;
+          return <SubjectsForm data={subjects} />;
         case 'teachers':
-          return <TeachersForm data={teachers} schoolDays={schoolConfig.schoolDays} />;
+          return <TeachersForm data={teachers} schoolDays={schoolConfig.schoolDays} allSubjects={subjects} />;
         case 'rooms':
           return <RoomsForm data={rooms} />;
         case 'validation':
