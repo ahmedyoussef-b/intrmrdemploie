@@ -11,6 +11,7 @@ import { saveTimetable } from '@/lib/features/timetable/timetableSlice';
 import type { WizardData } from '@/types/wizard';
 import type { CreateLessonPayload } from '@/types';
 import { Day } from '@prisma/client';
+import { format, parse } from 'date-fns';
 
 interface ValidationResult {
   type: 'success' | 'warning' | 'error';
@@ -22,6 +23,47 @@ interface ValidationStepProps {
   wizardData: WizardData;
   onGenerationSuccess: () => void;
 }
+
+const generateTimeSlots = (
+    startTimeStr: string,
+    endTimeStr: string,
+    sessionDuration: number, // in minutes
+    lunchStartStr: string,
+    lunchEndStr: string
+): string[] => {
+    const slots: string[] = [];
+    const baseDate = new Date(); // Use a consistent date for parsing
+
+    const parseTime = (timeStr: string) => parse(timeStr, 'HH:mm', baseDate);
+
+    let currentSlotStart = parseTime(startTimeStr);
+    const schoolEnd = parseTime(endTimeStr);
+    const lunchStart = parseTime(lunchStartStr);
+    const lunchEnd = parseTime(lunchEndStr);
+
+    while (true) {
+        const currentSlotEnd = new Date(currentSlotStart.getTime() + sessionDuration * 60 * 1000);
+
+        if (currentSlotEnd > schoolEnd) {
+            break;
+        }
+
+        const startsDuringLunch = currentSlotStart >= lunchStart && currentSlotStart < lunchEnd;
+        const endsDuringLunch = currentSlotEnd > lunchStart && currentSlotEnd <= lunchEnd;
+        const wrapsLunch = currentSlotStart < lunchStart && currentSlotEnd > lunchEnd;
+        
+        if (startsDuringLunch || endsDuringLunch || wrapsLunch) {
+            currentSlotStart = new Date(lunchEnd.getTime());
+            continue;
+        }
+
+        slots.push(format(currentSlotStart, 'HH:mm'));
+        currentSlotStart = currentSlotEnd;
+    }
+
+    return slots;
+};
+
 
 const ValidationStep: React.FC<ValidationStepProps> = ({ wizardData, onGenerationSuccess }) => {
   const [isGenerating, setIsGenerating] = useState(false);
@@ -79,27 +121,39 @@ const ValidationStep: React.FC<ValidationStepProps> = ({ wizardData, onGeneratio
     const lessonsToCreate: CreateLessonPayload[] = [];
     const schoolDaysEnum = school.schoolDays.map(d => d.toUpperCase()) as Day[];
     
-    // Define a realistic set of time slots for a school day
-    const timeSlots = ['08:00', '09:00', '10:00', '11:00', '14:00', '15:00', '16:00'];
+    const timeSlots = generateTimeSlots(
+        school.startTime,
+        school.endTime,
+        school.sessionDuration,
+        school.lunchBreakStart,
+        school.lunchBreakEnd
+    );
+    const sessionDuration = school.sessionDuration;
+
+    if (timeSlots.length === 0) {
+        toast({
+            variant: "destructive",
+            title: "Erreur de configuration",
+            description: "Aucun créneau horaire n'a pu être généré. Vérifiez les heures de début/fin, la pause et la durée des séances.",
+        });
+        setIsGenerating(false);
+        return;
+    }
 
     classes.forEach(c => {
       let dayIndex = 0;
       let timeSlotIndex = 0;
       subjects.forEach((subject) => {
-        // Find a teacher for this subject
-        const teacherForSubject = teachers.find(t => t.subjects.some(s => s.id === subject.id));
-        if (!teacherForSubject) return; // Skip if no teacher for this subject
-        
-        // Find an available room
-        const room = rooms[lessonsToCreate.length % rooms.length]; // Simple round-robin for now
-        
-        const sessionDuration = (subject.sessionDurations && subject.sessionDurations.length > 0) 
-            ? subject.sessionDurations[0] 
-            : 60; // Default to 60 mins if not specified
+        const teacherForSubject = teachers.find(t => (t.subjects || []).some(s => s.id === subject.id));
+        if (!teacherForSubject) return; 
 
+        const room = rooms[lessonsToCreate.length % rooms.length]; 
+        
         for (let h = 0; h < subject.weeklyHours; h++) {
           const day = schoolDaysEnum[dayIndex % schoolDaysEnum.length];
-          const [startHour, startMinute] = timeSlots[timeSlotIndex % timeSlots.length].split(':').map(Number);
+          const time = timeSlots[timeSlotIndex % timeSlots.length];
+          const [startHour, startMinute] = time.split(':').map(Number);
+          
           const startTime = new Date(2024, 1, 1, startHour, startMinute);
           const endTime = new Date(startTime.getTime() + sessionDuration * 60000);
           

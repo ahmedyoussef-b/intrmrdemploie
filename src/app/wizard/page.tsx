@@ -68,8 +68,11 @@ export default function WizardPage() {
     const [schoolConfig, setSchoolConfig] = useState<SchoolData>({
       name: 'Collège Jean Moulin',
       startTime: '08:00',
-      endTime: '17:00',
+      endTime: '18:00',
       schoolDays: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+      sessionDuration: 60,
+      lunchBreakStart: '12:00',
+      lunchBreakEnd: '14:00',
     });
   
     const wizardData: WizardData = {

@@ -5,6 +5,9 @@ export interface SchoolData {
   startTime: string;
   endTime: string;
   schoolDays: string[];
+  sessionDuration: number;
+  lunchBreakStart: string;
+  lunchBreakEnd: string;
 }
 
 export interface WizardData {

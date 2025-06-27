@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Clock, Calendar, School } from 'lucide-react';
+import { Clock, Calendar, School, Coffee } from 'lucide-react';
 import type { SchoolData } from '@/types/wizard';
 
 interface SchoolConfigFormProps {
@@ -64,7 +64,7 @@ const SchoolConfigForm: React.FC<SchoolConfigFormProps> = ({ data, onUpdate }) =
       <Card className="p-6">
         <div className="flex items-center space-x-2 mb-4">
           <Clock className="text-blue-500" size={20} />
-          <h3 className="text-lg font-semibold">Configuration horaire</h3>
+          <h3 className="text-lg font-semibold">Horaires de la Journée</h3>
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -86,6 +86,53 @@ const SchoolConfigForm: React.FC<SchoolConfigFormProps> = ({ data, onUpdate }) =
               type="time"
               value={data.endTime}
               onChange={(e) => handleInputChange('endTime', e.target.value)}
+              className="mt-1"
+            />
+          </div>
+        </div>
+      </Card>
+
+      <Card className="p-6">
+        <div className="flex items-center space-x-2 mb-4">
+          <Coffee className="text-blue-500" size={20} />
+          <h3 className="text-lg font-semibold">Paramètres des Séances</h3>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <Label htmlFor="sessionDuration">Durée d'une séance</Label>
+            <Select
+              value={data.sessionDuration.toString()}
+              onValueChange={(value) => handleInputChange('sessionDuration', parseInt(value))}
+            >
+              <SelectTrigger id="sessionDuration" className="mt-1">
+                <SelectValue placeholder="Durée..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="45">45 minutes</SelectItem>
+                <SelectItem value="55">55 minutes</SelectItem>
+                <SelectItem value="60">60 minutes</SelectItem>
+                <SelectItem value="90">90 minutes</SelectItem>
+                <SelectItem value="120">120 minutes</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="lunchBreakStart">Début Pause Déjeuner</Label>
+            <Input
+              id="lunchBreakStart"
+              type="time"
+              value={data.lunchBreakStart}
+              onChange={(e) => handleInputChange('lunchBreakStart', e.target.value)}
+              className="mt-1"
+            />
+          </div>
+          <div>
+            <Label htmlFor="lunchBreakEnd">Fin Pause Déjeuner</Label>
+            <Input
+              id="lunchBreakEnd"
+              type="time"
+              value={data.lunchBreakEnd}
+              onChange={(e) => handleInputChange('lunchBreakEnd', e.target.value)}
               className="mt-1"
             />
           </div>
@@ -128,6 +175,8 @@ const SchoolConfigForm: React.FC<SchoolConfigFormProps> = ({ data, onUpdate }) =
           <p><strong>Établissement:</strong> {data.name || 'Non défini'}</p>
           <p><strong>Horaires:</strong> {data.startTime} - {data.endTime}</p>
           <p><strong>Jours de cours:</strong> {data.schoolDays.length} jour(s)</p>
+          <p><strong>Durée des séances:</strong> {data.sessionDuration} minutes</p>
+          <p><strong>Pause déjeuner:</strong> {data.lunchBreakStart} - {data.lunchBreakEnd}</p>
         </div>
       </Card>
     </div>
