@@ -9,7 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAppDispatch } from '@/hooks/redux-hooks';
 import { saveTimetable } from '@/lib/features/timetable/timetableSlice';
 import type { WizardData } from '@/types/wizard';
-import type { CreateLessonPayload } from '@/types';
+import type { CreateLessonPayload, Classroom, TeacherWithDetails } from '@/types';
 import { Day } from '@prisma/client';
 import { format, parse } from 'date-fns';
 
@@ -32,8 +32,9 @@ const generateTimeSlots = (
     lunchEndStr: string
 ): string[] => {
     const slots: string[] = [];
+    if (!startTimeStr || !endTimeStr || !sessionDuration) return [];
+    
     const baseDate = new Date(); // Use a consistent date for parsing
-
     const parseTime = (timeStr: string) => parse(timeStr, 'HH:mm', baseDate);
 
     let currentSlotStart = parseTime(startTimeStr);
@@ -140,94 +141,112 @@ const ValidationStep: React.FC<ValidationStepProps> = ({ wizardData, onGeneratio
         return;
     }
 
-    // This tracks hours per subject for a given class on a given day.
-    // Key: "classId-day-subjectId", Value: number of hours (in units of sessionDuration)
-    const dailyHoursTracker: Record<string, number> = {};
+    // Global occupancy maps to prevent conflicts
+    const teacherOccupancy: Record<string, boolean> = {}; // Key: "teacherId-day-time"
+    const roomOccupancy: Record<string, boolean> = {}; // Key: "roomId-day-time"
 
-    classes.forEach(c => {
-      // Create a flat array of all available slots for this class
+    classes.forEach((c, classIndex) => {
+      setGenerationProgress(((classIndex + 1) / classes.length) * 50);
+      
       const classSchedule: { day: Day, time: string }[] = [];
       schoolDaysEnum.forEach(day => {
           timeSlots.forEach(time => {
               classSchedule.push({ day, time });
           });
       });
-
-      let scheduleIndex = 0;
       
+      const classOccupancy: Record<string, boolean> = {}; // Key: "day-time", specific to this class
+
       subjects.forEach((subject) => {
-        const teacherForSubject = teachers.find(t => (t.subjects || []).some(s => s.id === subject.id));
-        if (!teacherForSubject) return; 
+        const potentialTeachers = teachers.filter(t => (t.subjects || []).some(s => s.id === subject.id));
+        if (potentialTeachers.length === 0) return;
 
-        // Simple room assignment, can be improved later to handle conflicts
-        const room = rooms.length > 0 ? rooms[lessonsToCreate.length % rooms.length] : undefined;
-        if (!room) {
-          console.error("No room available for lesson placement");
-          return; // Skip this subject if no room can be assigned
-        }
-        
         let hoursPlaced = 0;
-        const weeklyHoursInSlots = subject.weeklyHours; // Assuming 1 hour = 1 slot
+        const weeklyHoursToPlace = subject.weeklyHours;
+        const dailyHoursTracker: Record<string, number> = {};
 
-        while (hoursPlaced < weeklyHoursInSlots) {
-            // Safeguard against running out of slots
-            if (scheduleIndex >= classSchedule.length) {
-                console.error(`Not enough slots to place all lessons for class ${c.name}. Subject ${subject.name} might be incomplete.`);
-                break; // Break from the while loop for this subject
-            }
-
-            const { day } = classSchedule[scheduleIndex];
+        for (let scheduleIndex = 0; scheduleIndex < classSchedule.length && hoursPlaced < weeklyHoursToPlace; ) {
+            const { day, time } = classSchedule[scheduleIndex];
             const trackerKey = `${c.id}-${day}-${subject.id}`;
             const hoursOnDay = dailyHoursTracker[trackerKey] || 0;
 
-            // Determine how many hours/slots to try and place.
-            let lessonSlots = 1;
-            // Try to make 2-hour blocks for certain subjects if enough hours are left
-            if (['Éducation Physique et Sportive', 'Sciences de la Vie et de la Terre', 'Français'].includes(subject.name) && (weeklyHoursInSlots - hoursPlaced) >= 2) {
-                lessonSlots = 2;
+            if(classOccupancy[`${day}-${time}`]) {
+                scheduleIndex++;
+                continue;
             }
 
-            // If placing a 2h block exceeds the 2h/day limit, try with a 1h block.
+            let lessonSlots = 1;
+            if (['Éducation Physique et Sportive', 'Sciences de la Vie et de la Terre', 'Français'].includes(subject.name) && (weeklyHoursToPlace - hoursPlaced) >= 2) {
+                lessonSlots = 2;
+            }
             if (hoursOnDay + lessonSlots > 2) {
                 lessonSlots = 1;
             }
 
-            // Check if even a 1h block violates the constraint, or if the block won't fit in the remaining day slots.
-            // If so, skip this slot and try the next one.
-            const isEndOfDay = (scheduleIndex % timeSlots.length) + lessonSlots > timeSlots.length;
-            if (hoursOnDay + lessonSlots > 2 || isEndOfDay) {
-                scheduleIndex++;
-                continue; // Try the next available slot in the schedule
-            }
-            
-            // If all checks pass, place the lesson
-            const { time } = classSchedule[scheduleIndex];
-            const [startHour, startMinute] = time.split(':').map(Number);
-            
-            const startTime = new Date(2024, 1, 1, startHour, startMinute);
-            const endTime = new Date(startTime.getTime() + (sessionDuration * lessonSlots) * 60000);
-            
-            lessonsToCreate.push({ 
-                name: `${subject.name} - ${c.abbreviation}`, 
-                day, 
-                startTime, 
-                endTime, 
-                subjectId: subject.id, 
-                classId: c.id, 
-                teacherId: teacherForSubject.id, 
-                classroomId: room.id 
-            });
+            let assignedTeacher: TeacherWithDetails | undefined;
+            let assignedRoom: Classroom | undefined;
+            let isBlockAvailable = false;
 
-            // Update trackers for the successful placement
-            dailyHoursTracker[trackerKey] = hoursOnDay + lessonSlots;
-            hoursPlaced += lessonSlots;
-            scheduleIndex += lessonSlots; // Move the index by the number of slots used
+            for (const teacher of potentialTeachers) {
+                for (const room of rooms) {
+                    let canBook = true;
+                    for(let i=0; i < lessonSlots; i++) {
+                        const currentSlotIndex = scheduleIndex + i;
+                        if (currentSlotIndex >= classSchedule.length) { canBook = false; break; }
+
+                        const { day: d, time: t } = classSchedule[currentSlotIndex];
+                        if (d !== day) { canBook = false; break; }
+
+                        if (teacherOccupancy[`${teacher.id}-${d}-${t}`] || roomOccupancy[`${room.id}-${d}-${t}`] || classOccupancy[`${d}-${t}`]) {
+                            canBook = false;
+                            break;
+                        }
+                    }
+                    if(canBook) {
+                        assignedTeacher = teacher;
+                        assignedRoom = room;
+                        isBlockAvailable = true;
+                        break; 
+                    }
+                }
+                if(isBlockAvailable) break;
+            }
+
+            if (isBlockAvailable && assignedTeacher && assignedRoom) {
+                const [startHour, startMinute] = time.split(':').map(Number);
+                const startTime = new Date(2024, 1, 1, startHour, startMinute);
+                const endTime = new Date(startTime.getTime() + (sessionDuration * lessonSlots) * 60000);
+
+                lessonsToCreate.push({ 
+                    name: `${subject.name} - ${c.abbreviation}`, 
+                    day, 
+                    startTime, 
+                    endTime, 
+                    subjectId: subject.id, 
+                    classId: c.id, 
+                    teacherId: assignedTeacher.id, 
+                    classroomId: assignedRoom.id 
+                });
+
+                for(let i=0; i < lessonSlots; i++) {
+                    const { day: d, time: t } = classSchedule[scheduleIndex + i];
+                    teacherOccupancy[`${assignedTeacher.id}-${d}-${t}`] = true;
+                    roomOccupancy[`${assignedRoom.id}-${d}-${t}`] = true;
+                    classOccupancy[`${d}-${t}`] = true;
+                }
+
+                dailyHoursTracker[trackerKey] = (dailyHoursTracker[trackerKey] || 0) + lessonSlots;
+                hoursPlaced += lessonSlots;
+                scheduleIndex += lessonSlots;
+            } else {
+                scheduleIndex++;
+            }
         }
       });
     });
 
     await new Promise(resolve => setTimeout(resolve, 500));
-    setGenerationProgress(50);
+    setGenerationProgress(75);
 
     try {
       await dispatch(saveTimetable(lessonsToCreate)).unwrap();
