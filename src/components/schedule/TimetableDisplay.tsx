@@ -173,12 +173,12 @@ const DroppableCell = ({
     <TableCell
       ref={setNodeRef}
       rowSpan={cellData.rowSpan}
-      className={cn("p-1 align-top relative", isOver && "bg-blue-100 ring-2 ring-blue-400")}
+      className={cn("p-1 align-top relative h-24", isOver && "bg-blue-100 ring-2 ring-blue-400")}
     >
       {cellData.lesson ? (
         <DraggableLessonGridItem lesson={cellData.lesson} getSubjectColor={getSubjectColor} />
       ) : (
-        <div className="p-2 h-20 bg-gray-50 rounded-md border border-dashed border-gray-200" />
+        <div className="p-2 h-full bg-gray-50 rounded-md border border-dashed border-gray-200" />
       )}
     </TableCell>
   );
@@ -206,34 +206,49 @@ const TimetableGrid = ({
     const processedSchedule = useMemo(() => {
         const grid: Record<string, Array<{ time: string; lesson: LessonWithDetails | null; rowSpan: number; isPlaceholder: boolean; }>> = {};
 
+        // 1. Initialize the grid structure
         schoolDays.forEach(day => {
             grid[day] = timeSlots.map(time => ({ time, lesson: null, rowSpan: 1, isPlaceholder: false }));
         });
 
         const filteredLessons = lessons.filter(l => filterType === 'class' ? l.classId === filterId : l.teacherId === filterId);
+        
+        const placedLessonIds = new Set();
 
-        filteredLessons.forEach(lesson => {
-            const lessonDay = dayEnumMap[lesson.day];
-            if (!lessonDay || !grid[lessonDay]) return;
+        // 2. Iterate through each cell of the grid to place lessons
+        timeSlots.forEach((time, timeIndex) => {
+            schoolDays.forEach(day => {
+                const dayEnum = reverseDayEnumMap[day];
+                if (!dayEnum) return;
 
-            const lessonStartTime = format(parseISO(lesson.startTime), 'HH:mm');
-            const start_dt = parseISO(lesson.startTime);
-            const end_dt = parseISO(lesson.endTime);
-            const durationInMinutes = (end_dt.getTime() - start_dt.getTime()) / (1000 * 60);
-            const durationInSlots = wizardData.school.sessionDuration > 0 ? Math.round(durationInMinutes / wizardData.school.sessionDuration) : 1;
-            
-            const startIndex = grid[lessonDay].findIndex(cell => cell.time === lessonStartTime);
+                // Find a lesson that starts at this specific cell (day and time) and hasn't been placed yet
+                const lessonForThisCell = filteredLessons.find(l =>
+                    !placedLessonIds.has(l.id) &&
+                    l.day === dayEnum &&
+                    format(parseISO(l.startTime), 'HH:mm') === time
+                );
 
-            if (startIndex !== -1) {
-                grid[lessonDay][startIndex].lesson = lesson;
-                grid[lessonDay][startIndex].rowSpan = durationInSlots;
-                for (let i = 1; i < durationInSlots; i++) {
-                    if (grid[lessonDay][startIndex + i]) {
-                        grid[lessonDay][startIndex + i].isPlaceholder = true;
+                if (lessonForThisCell) {
+                    const start_dt = parseISO(lessonForThisCell.startTime);
+                    const end_dt = parseISO(lessonForThisCell.endTime);
+                    const durationInMinutes = (end_dt.getTime() - start_dt.getTime()) / (1000 * 60);
+                    const durationInSlots = wizardData.school.sessionDuration > 0 ? Math.round(durationInMinutes / wizardData.school.sessionDuration) : 1;
+
+                    // Place the lesson and set its rowspan
+                    grid[day][timeIndex].lesson = lessonForThisCell;
+                    grid[day][timeIndex].rowSpan = durationInSlots;
+                    placedLessonIds.add(lessonForThisCell.id);
+
+                    // Mark subsequent cells in the same column as placeholders
+                    for (let i = 1; i < durationInSlots; i++) {
+                        if (grid[day][timeIndex + i]) {
+                            grid[day][timeIndex + i].isPlaceholder = true;
+                        }
                     }
                 }
-            }
+            });
         });
+
         return grid;
     }, [lessons, schoolDays, timeSlots, filterId, filterType, wizardData.school.sessionDuration]);
 
@@ -288,6 +303,7 @@ const TimetableDisplay: React.FC<TimetableDisplayProps> = ({ lessons, wizardData
   const timeSlots = useMemo(() => {
     const { school } = wizardData;
     if (!school || !school.startTime || !school.endTime || !school.sessionDuration) {
+        // Fallback to generating from existing lessons if school config is incomplete
         return Array.from(new Set(lessons.map(l => format(parseISO(l.startTime), 'HH:mm')))).sort();
     }
     return generateTimeSlots(school.startTime, school.endTime, school.sessionDuration, school.lunchBreakStart, school.lunchBreakEnd);
@@ -562,3 +578,4 @@ const TimetableDisplay: React.FC<TimetableDisplayProps> = ({ lessons, wizardData
 };
 
 export default TimetableDisplay;
+
