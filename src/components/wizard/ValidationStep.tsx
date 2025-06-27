@@ -147,32 +147,51 @@ const ValidationStep: React.FC<ValidationStepProps> = ({ wizardData, onGeneratio
         const teacherForSubject = teachers.find(t => (t.subjects || []).some(s => s.id === subject.id));
         if (!teacherForSubject) return; 
 
-        const room = rooms[lessonsToCreate.length % rooms.length]; 
+        const room = rooms.length > 0 ? rooms[lessonsToCreate.length % rooms.length] : undefined;
+        if (!room) {
+          toast({ title: "Erreur", description: "Aucune salle disponible.", variant: "destructive" });
+          return;
+        }
         
-        for (let h = 0; h < subject.weeklyHours; h++) {
-          const day = schoolDaysEnum[dayIndex % schoolDaysEnum.length];
-          const time = timeSlots[timeSlotIndex % timeSlots.length];
-          const [startHour, startMinute] = time.split(':').map(Number);
-          
-          const startTime = new Date(2024, 1, 1, startHour, startMinute);
-          const endTime = new Date(startTime.getTime() + sessionDuration * 60000);
-          
-          lessonsToCreate.push({ 
-            name: `${subject.name} - ${c.abbreviation}`, 
-            day, 
-            startTime, 
-            endTime, 
-            subjectId: subject.id, 
-            classId: c.id, 
-            teacherId: teacherForSubject.id, 
-            classroomId: room.id 
-          });
+        let hoursPlaced = 0;
+        while(hoursPlaced < subject.weeklyHours) {
+            let lessonSlots = 1;
+            // Try to make 2-hour blocks for certain subjects if enough hours are left
+            if (['Éducation Physique et Sportive', 'Sciences de la Vie et de la Terre', 'Français'].includes(subject.name) && (subject.weeklyHours - hoursPlaced) >= 2) {
+                lessonSlots = 2;
+            }
 
-          timeSlotIndex++;
-          if (timeSlotIndex >= timeSlots.length) { 
-            timeSlotIndex = 0; 
-            dayIndex++; 
-          }
+            // Ensure the multi-slot lesson doesn't wrap to the next day. If it does, just place a 1-slot lesson.
+            if (timeSlotIndex + lessonSlots > timeSlots.length) {
+                lessonSlots = 1;
+            }
+            
+            // If the current slot is the last of the day, ensure we only place a 1-slot lesson.
+            if (timeSlotIndex >= timeSlots.length) {
+                timeSlotIndex = 0;
+                dayIndex++;
+            }
+            
+            const day = schoolDaysEnum[dayIndex % schoolDaysEnum.length];
+            const time = timeSlots[timeSlotIndex];
+            const [startHour, startMinute] = time.split(':').map(Number);
+            
+            const startTime = new Date(2024, 1, 1, startHour, startMinute);
+            const endTime = new Date(startTime.getTime() + (sessionDuration * lessonSlots) * 60000);
+            
+            lessonsToCreate.push({ 
+                name: `${subject.name} - ${c.abbreviation}`, 
+                day, 
+                startTime, 
+                endTime, 
+                subjectId: subject.id, 
+                classId: c.id, 
+                teacherId: teacherForSubject.id, 
+                classroomId: room.id 
+            });
+
+            timeSlotIndex += lessonSlots;
+            hoursPlaced += lessonSlots;
         }
       });
     });
