@@ -193,7 +193,10 @@ const ValidationStep: React.FC<ValidationStepProps> = ({ wizardData, onGeneratio
             while(attemptSlots > 0) {
               let isBlockAvailable = false;
               for (const teacher of potentialTeachers) {
-                for (const room of rooms) {
+                const shuffledRooms = [...rooms].sort(() => Math.random() - 0.5);
+                for (const room of shuffledRooms) {
+                  if (room.capacity < c.capacity) continue;
+
                   let canBook = true;
                   for(let i=0; i < attemptSlots; i++) {
                       const currentSlotIndex = scheduleIndex + i;
