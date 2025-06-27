@@ -4,7 +4,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { PlusCircle, Puzzle, Trash2, Clock, User } from "lucide-react";
+import { PlusCircle, Puzzle, Trash2, Clock, User, Building } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -16,7 +16,8 @@ import { useAppDispatch, useAppSelector } from '@/hooks/redux-hooks';
 import { fetchClasses, selectAllClasses } from '@/lib/features/classes/classesSlice';
 import { fetchMatieres, selectAllMatieres } from '@/lib/features/matieres/matieresSlice';
 import { fetchProfesseurs, selectAllProfesseurs } from '@/lib/features/professeurs/professeursSlice';
-import type { ClassWithGrade, Subject, TeacherWithDetails } from '@/types';
+import { fetchSalles, selectAllSalles } from '@/lib/features/salles/sallesSlice';
+import type { ClassWithGrade, Subject, TeacherWithDetails, Classroom } from '@/types';
 import { Day } from '@prisma/client';
 
 // Mock constraint structure for the UI
@@ -41,11 +42,19 @@ interface TeacherConstraint {
   description: string;
 }
 
+// New constraint for Subject Requirements
+interface SubjectRequirement {
+  subjectId: number;
+  requiredRoomId: number | 'any'; // 'any' means no specific room is required
+}
+
+
 export default function ManageConstraintsPage() {
   const dispatch = useAppDispatch();
   const classes = useAppSelector(selectAllClasses);
   const subjects = useAppSelector(selectAllMatieres);
   const teachers = useAppSelector(selectAllProfesseurs);
+  const salles = useAppSelector(selectAllSalles);
   
   // State for Class Constraints
   const [selectedClassId, setSelectedClassId] = useState<string>('');
@@ -69,7 +78,7 @@ export default function ManageConstraintsPage() {
       description: '',
   });
 
-  // New State for Teacher Constraints
+  // State for Teacher Constraints
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>('');
   const [isTeacherFormOpen, setIsTeacherFormOpen] = useState(false);
   const [teacherConstraints, setTeacherConstraints] = useState<TeacherConstraint[]>([]);
@@ -80,12 +89,17 @@ export default function ManageConstraintsPage() {
       description: '',
   });
 
+  // State for Subject Requirements
+  const [subjectRequirements, setSubjectRequirements] = useState<SubjectRequirement[]>([
+    { subjectId: 4, requiredRoomId: 3 } // Mock: Science requires Salle 203
+  ]);
 
   // Fetch all necessary data
   useEffect(() => {
     dispatch(fetchClasses());
     dispatch(fetchMatieres());
     dispatch(fetchProfesseurs());
+    dispatch(fetchSalles());
   }, [dispatch]);
 
   // Set default selection for classes
@@ -176,6 +190,22 @@ export default function ManageConstraintsPage() {
       setTeacherConstraints(prev => prev.filter(c => c.id !== id));
   };
 
+  // Handlers for Subject Requirements
+  const handleSubjectRequirementChange = (subjectId: number, requiredRoomId: string) => {
+    const roomId = requiredRoomId === 'any' ? 'any' : parseInt(requiredRoomId, 10);
+    setSubjectRequirements(prev => {
+        const existingReqIndex = prev.findIndex(r => r.subjectId === subjectId);
+        if (existingReqIndex > -1) {
+            // Update existing requirement
+            const updatedReqs = [...prev];
+            updatedReqs[existingReqIndex] = { ...updatedReqs[existingReqIndex], requiredRoomId: roomId };
+            return updatedReqs;
+        } else {
+            // Add new requirement
+            return [...prev, { subjectId, requiredRoomId: roomId }];
+        }
+    });
+  };
 
   const getSubjectName = (id: number) => subjects.find(s => s.id === id)?.name || 'Matière inconnue';
   const dayLabels: Record<Day, string> = { MONDAY: 'Lundi', TUESDAY: 'Mardi', WEDNESDAY: 'Mercredi', THURSDAY: 'Jeudi', FRIDAY: 'Vendredi', SATURDAY: 'Samedi', SUNDAY: 'Dimanche' };
@@ -388,8 +418,51 @@ export default function ManageConstraintsPage() {
 
         <TabsContent value="subject_requirements">
           <Card className="shadow-lg">
-            <CardHeader><CardTitle>Exigences Matière</CardTitle><CardDescription>Fonctionnalité à venir.</CardDescription></CardHeader>
-            <CardContent><div className="p-8 text-center text-muted-foreground"><p>Besoin d'un type de salle spécifique (ex: labo), etc.</p></div></CardContent>
+            <CardHeader>
+              <CardTitle>Exigences par Matière</CardTitle>
+              <CardDescription>
+                Associez des matières à des salles spécifiques (ex: un laboratoire pour la chimie) pour une planification plus précise.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {subjects.length > 0 ? (
+                <div className="space-y-4">
+                  {subjects.map((subject) => {
+                    const requirement = subjectRequirements.find(r => r.subjectId === subject.id);
+                    const selectedRoomId = requirement ? String(requirement.requiredRoomId) : 'any';
+
+                    return (
+                      <div key={subject.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50">
+                        <Label htmlFor={`subject-req-${subject.id}`} className="text-base font-medium flex-1">
+                          {subject.name}
+                        </Label>
+                        <Select
+                          value={selectedRoomId}
+                          onValueChange={(value) => handleSubjectRequirementChange(subject.id, value)}
+                        >
+                          <SelectTrigger className="w-full md:w-72" id={`subject-req-${subject.id}`}>
+                            <SelectValue placeholder="Choisir une salle requise..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="any">N'importe quelle salle</SelectItem>
+                            {salles.map((salle) => (
+                              <SelectItem key={salle.id} value={String(salle.id)}>
+                                {salle.name} (Bât. {salle.building}, {salle.capacity} pl.)
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="p-8 text-center text-muted-foreground flex items-center justify-center h-full">
+                  <Building className="mr-2 h-6 w-6" />
+                  <p className="text-lg">Aucune matière ou salle disponible pour définir des exigences.</p>
+                </div>
+              )}
+            </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
