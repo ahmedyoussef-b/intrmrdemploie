@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Calendar, Download, Printer, Users, User, GripVertical, BookOpen, FlaskConical, Dumbbell, Globe, Music, Palette, Calculator, Code, Trash2 } from 'lucide-react';
 import type { WizardData } from '@/types/wizard';
 import type { LessonWithDetails, Subject, ClassWithGrade, Classroom, Day, TeacherWithDetails } from '@/types';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, parse } from 'date-fns';
 import { DndContext, useDraggable, useDroppable, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -112,98 +112,144 @@ const DroppableTrash = ({ isDraggingDeletable }: { isDraggingDeletable: boolean 
     );
 };
 
-const DroppableCell: React.FC<{
-  classItem: ClassWithGrade;
-  day: string;
-  time: string;
-  lesson: LessonWithDetails | undefined;
-  getSubjectColor: (subjectName: string) => string;
-}> = ({ classItem, day, time, lesson, getSubjectColor }) => {
-  const droppableId = `droppable-cell__${classItem.id}__${day}__${time}`;
-  const { setNodeRef, isOver } = useDroppable({ id: droppableId });
+const generateTimeSlots = (
+    startTimeStr: string,
+    endTimeStr: string,
+    sessionDuration: number, // in minutes
+    lunchStartStr: string,
+    lunchEndStr: string
+): string[] => {
+    const slots: string[] = [];
+    if (!startTimeStr || !endTimeStr || !sessionDuration) return [];
+    
+    const baseDate = new Date(); // Use a consistent date for parsing
+    const parseTime = (timeStr: string) => parse(timeStr, 'HH:mm', baseDate);
 
-  return (
-    <TableCell ref={setNodeRef} className={cn("p-1 align-top", isOver && "bg-blue-100 ring-2 ring-blue-400")}>
-      {lesson ? (
-        <DraggableLessonGridItem lesson={lesson} getSubjectColor={getSubjectColor} />
-      ) : (
-        <div className="p-2 h-20 bg-gray-50 rounded-md border border-dashed border-gray-200"></div>
-      )}
-    </TableCell>
-  );
+    let currentSlotStart = parseTime(startTimeStr);
+    const schoolEnd = parseTime(endTimeStr);
+    const lunchStart = parseTime(lunchStartStr);
+    const lunchEnd = parseTime(lunchEndStr);
+
+    while (true) {
+        const currentSlotEnd = new Date(currentSlotStart.getTime() + sessionDuration * 60 * 1000);
+
+        if (currentSlotEnd > schoolEnd) {
+            break;
+        }
+
+        const startsDuringLunch = currentSlotStart >= lunchStart && currentSlotStart < lunchEnd;
+        const endsDuringLunch = currentSlotEnd > lunchStart && currentSlotEnd <= lunchEnd;
+        const wrapsLunch = currentSlotStart < lunchStart && currentSlotEnd > lunchEnd;
+        
+        if (startsDuringLunch || endsDuringLunch || wrapsLunch) {
+            currentSlotStart = new Date(lunchEnd.getTime());
+            continue;
+        }
+
+        slots.push(format(currentSlotStart, 'HH:mm'));
+        currentSlotStart = currentSlotEnd;
+    }
+
+    return slots;
 };
 
-const ClassTimetable: React.FC<{
-  classItem: ClassWithGrade;
-  localLessons: LessonWithDetails[];
-  wizardData: WizardData;
-  timeSlots: string[];
-  schoolDays: string[];
-  draggableItems: { teacher: TeacherWithDetails; subject: Subject }[];
-  getSubjectColor: (subjectName: string) => string;
-  isDraggingDeletable: boolean;
-}> = ({ classItem, localLessons, wizardData, timeSlots, schoolDays, draggableItems, getSubjectColor, isDraggingDeletable }) => {
-  
-  const schedule = useMemo(() => localLessons.filter(l => l.classId === classItem.id).reduce((acc, lesson) => {
-      const day = dayEnumMap[lesson.day] ?? 'UNKNOWN';
-      const time = format(parseISO(lesson.startTime), 'HH:mm');
-      if (!acc[day]) acc[day] = {};
-      acc[day][time] = lesson;
-      return acc;
-    }, {} as Record<string, Record<string, LessonWithDetails>>), [localLessons, classItem.id]);
+const TimetableGrid = ({
+    lessons,
+    wizardData,
+    schoolDays,
+    timeSlots,
+    getSubjectColor,
+    isDraggingDeletable,
+    filterId, // classId or teacherId
+    filterType // 'class' or 'teacher'
+}: {
+    lessons: LessonWithDetails[];
+    wizardData: WizardData;
+    schoolDays: string[];
+    timeSlots: string[];
+    getSubjectColor: (subjectName: string) => string;
+    isDraggingDeletable: boolean;
+    filterId: number | string;
+    filterType: 'class' | 'teacher';
+}) => {
+    const processedSchedule = useMemo(() => {
+        const grid: Record<string, Array<{ time: string; lesson: LessonWithDetails | null; rowSpan: number; isPlaceholder: boolean; }>> = {};
 
-  return (
-    <Card className="p-6 break-inside-avoid">
-      <CardHeader className="p-0 mb-4">
-        <CardTitle>Emploi du temps - Classe {classItem.name}</CardTitle>
-      </CardHeader>
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <div className="lg:col-span-1 @media print:hidden flex flex-col">
-          <div>
-            <h4 className="font-semibold mb-3">Matières à placer</h4>
-            <ScrollArea className={cn("h-96 rounded-md border p-3", isDraggingDeletable && "pointer-events-none")}>
-              {draggableItems.length === 0 && <p className="text-sm text-muted-foreground">Aucun professeur avec une matière assignée n'a été trouvé.</p>}
-              {draggableItems.map(({ teacher, subject }) => (
-                  <DraggableLessonItem key={`${teacher.id}-${subject.id}`} teacher={teacher} subject={subject} />
-              ))}
-            </ScrollArea>
-          </div>
-          <DroppableTrash isDraggingDeletable={isDraggingDeletable} />
-        </div>
-        <div className="lg:col-span-3 overflow-x-auto">
-          <Table className="min-w-full">
+        schoolDays.forEach(day => {
+            grid[day] = timeSlots.map(time => ({ time, lesson: null, rowSpan: 1, isPlaceholder: false }));
+        });
+
+        const filteredLessons = lessons.filter(l => filterType === 'class' ? l.classId === filterId : l.teacherId === filterId);
+
+        filteredLessons.forEach(lesson => {
+            const lessonDay = dayEnumMap[lesson.day];
+            if (!lessonDay || !grid[lessonDay]) return;
+
+            const lessonStartTime = format(parseISO(lesson.startTime), 'HH:mm');
+            const start_dt = parseISO(lesson.startTime);
+            const end_dt = parseISO(lesson.endTime);
+            const durationInMinutes = (end_dt.getTime() - start_dt.getTime()) / (1000 * 60);
+            const durationInSlots = wizardData.school.sessionDuration > 0 ? Math.round(durationInMinutes / wizardData.school.sessionDuration) : 1;
+            
+            const startIndex = grid[lessonDay].findIndex(cell => cell.time === lessonStartTime);
+
+            if (startIndex !== -1) {
+                grid[lessonDay][startIndex].lesson = lesson;
+                grid[lessonDay][startIndex].rowSpan = durationInSlots;
+                for (let i = 1; i < durationInSlots; i++) {
+                    if (grid[lessonDay][startIndex + i]) {
+                        grid[lessonDay][startIndex + i].isPlaceholder = true;
+                    }
+                }
+            }
+        });
+        return grid;
+    }, [lessons, schoolDays, timeSlots, filterId, filterType, wizardData.school.sessionDuration]);
+
+
+    return (
+        <Table className="min-w-full">
             <TableHeader><TableRow><TableHead className="w-20">Horaires</TableHead>{schoolDays.map(day => <TableHead key={day} className="text-center min-w-32">{day}</TableHead>)}</TableRow></TableHeader>
             <TableBody>
-              {timeSlots.map(time => (
-                <TableRow key={time}>
-                  <TableCell className="font-medium bg-gray-50">{time}</TableCell>
-                  {schoolDays.map(day => {
-                    const lesson = schedule[day]?.[time];
-                    return (
-                        <DroppableCell 
-                            key={`${day}-${time}`}
-                            classItem={classItem}
-                            day={day}
-                            time={time}
-                            lesson={lesson}
-                            getSubjectColor={getSubjectColor}
-                        />
-                    );
-                  })}
-                </TableRow>
-              ))}
+                {timeSlots.map((time, timeIndex) => (
+                    <TableRow key={time}>
+                        <TableCell className="font-medium bg-gray-50 sticky left-0 bg-background z-10">{time}</TableCell>
+                        {schoolDays.map(day => {
+                            const cellData = processedSchedule[day]?.[timeIndex];
+                            if (!cellData || cellData.isPlaceholder) {
+                                return null;
+                            }
+
+                            const droppableId = `droppable-cell__${filterId}__${day}__${time}`;
+                            const { setNodeRef, isOver } = useDroppable({ id: droppableId });
+
+                            return (
+                                <TableCell
+                                    ref={setNodeRef}
+                                    key={`${day}-${time}`}
+                                    rowSpan={cellData.rowSpan}
+                                    className={cn("p-1 align-top relative", isOver && "bg-blue-100 ring-2 ring-blue-400")}
+                                >
+                                    {cellData.lesson ? (
+                                        <DraggableLessonGridItem lesson={cellData.lesson} getSubjectColor={getSubjectColor} />
+                                    ) : (
+                                        <div className="p-2 h-20 bg-gray-50 rounded-md border border-dashed border-gray-200"></div>
+                                    )}
+                                </TableCell>
+                            );
+                        })}
+                    </TableRow>
+                ))}
             </TableBody>
-          </Table>
-        </div>
-      </div>
-    </Card>
-  );
+        </Table>
+    );
 };
 
 
 const TimetableDisplay: React.FC<TimetableDisplayProps> = ({ lessons, wizardData }) => {
   const [localLessons, setLocalLessons] = useState<LessonWithDetails[]>([]);
   const [isDraggingDeletable, setIsDraggingDeletable] = useState(false);
+  const [nextId, setNextId] = useState(-1);
   
   useEffect(() => {
     setLocalLessons(lessons);
@@ -215,7 +261,14 @@ const TimetableDisplay: React.FC<TimetableDisplayProps> = ({ lessons, wizardData
     return dayMappings[day] || day;
   });
   
-  const timeSlots = Array.from(new Set(localLessons.map(l => format(parseISO(l.startTime), 'HH:mm')))).sort();
+  const timeSlots = useMemo(() => {
+    const { school } = wizardData;
+    if (!school || !school.startTime || !school.endTime || !school.sessionDuration) {
+        return Array.from(new Set(lessons.map(l => format(parseISO(l.startTime), 'HH:mm')))).sort();
+    }
+    return generateTimeSlots(school.startTime, school.endTime, school.sessionDuration, school.lunchBreakStart, school.lunchBreakEnd);
+  }, [wizardData.school, lessons]);
+
 
   const [selectedClassId, setSelectedClassId] = useState<number | null>(wizardData.classes[0]?.id || null);
 
@@ -319,7 +372,7 @@ const TimetableDisplay: React.FC<TimetableDisplayProps> = ({ lessons, wizardData
         const endTimeDate = new Date(startTimeDate.getTime() + wizardData.school.sessionDuration * 60000);
 
         const newLesson: LessonWithDetails = {
-          id: Date.now(), // ID temporaire côté client
+          id: nextId,
           name: `${subject.name} - ${classItem.abbreviation}`,
           day: targetDay,
           startTime: startTimeDate.toISOString(),
@@ -335,7 +388,7 @@ const TimetableDisplay: React.FC<TimetableDisplayProps> = ({ lessons, wizardData
           createdAt: new Date(),
           updatedAt: new Date(),
         };
-
+        setNextId(prev => prev - 1);
         setLocalLessons(prevLessons => [...prevLessons, newLesson]);
 
         toast({
@@ -372,22 +425,21 @@ const TimetableDisplay: React.FC<TimetableDisplayProps> = ({ lessons, wizardData
 
   return (
     <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="space-y-6 @media print:space-y-2">
-        <Card className="p-6 @media print:shadow-none @media print:border-none">
+      <div className="space-y-6">
+        <Card className="p-6 print:shadow-none print:border-none">
           <div className="flex justify-between items-center">
             <div>
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Emplois du Temps - {wizardData.school.name}</h2>
               <p className="text-gray-600">Planification interactive</p>
             </div>
-            <div className="flex space-x-3 @media print:hidden">
-              <Button variant="outline" onClick={exportToPDF}><Printer size={16} className="mr-2" />Imprimer</Button>
-              <Button variant="outline"><Download size={16} className="mr-2" />Export PDF</Button>
+            <div className="flex space-x-3 print-hidden">
+              <Button variant="outline" onClick={exportToPDF}><Printer size={16} className="mr-2" />Imprimer / Exporter PDF</Button>
             </div>
           </div>
         </Card>
 
         <Tabs defaultValue="classes" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 @media print:hidden">
+          <TabsList className="grid w-full grid-cols-2 print-hidden">
             <TabsTrigger value="classes" className="flex items-center space-x-2"><Users size={16} /><span>Par Classes</span></TabsTrigger>
             <TabsTrigger value="teachers" className="flex items-center space-x-2"><User size={16} /><span>Par Professeurs</span></TabsTrigger>
           </TabsList>
@@ -398,8 +450,9 @@ const TimetableDisplay: React.FC<TimetableDisplayProps> = ({ lessons, wizardData
                     <Select
                         value={selectedClassId ? String(selectedClassId) : ''}
                         onValueChange={(value) => setSelectedClassId(value ? Number(value) : null)}
+                        
                     >
-                        <SelectTrigger className="w-full md:w-72">
+                        <SelectTrigger className="w-full md:w-72 print-hidden">
                             <SelectValue placeholder="Sélectionner une classe" />
                         </SelectTrigger>
                         <SelectContent>
@@ -412,16 +465,37 @@ const TimetableDisplay: React.FC<TimetableDisplayProps> = ({ lessons, wizardData
                     </Select>
                     
                     {selectedClass ? (
-                        <ClassTimetable
-                            classItem={selectedClass}
-                            localLessons={localLessons}
-                            wizardData={wizardData}
-                            timeSlots={timeSlots}
-                            schoolDays={schoolDays}
-                            draggableItems={draggableItems}
-                            getSubjectColor={getSubjectColor}
-                            isDraggingDeletable={isDraggingDeletable}
-                        />
+                         <Card className="p-6 break-inside-avoid">
+                            <CardHeader className="p-0 mb-4">
+                                <CardTitle>Emploi du temps - Classe {selectedClass.name}</CardTitle>
+                            </CardHeader>
+                            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                                <div className="lg:col-span-1 flex-col print-hidden">
+                                    <div>
+                                        <h4 className="font-semibold mb-3">Matières à placer</h4>
+                                        <ScrollArea className={cn("h-96 rounded-md border p-3", isDraggingDeletable && "pointer-events-none")}>
+                                        {draggableItems.length === 0 && <p className="text-sm text-muted-foreground">Aucun professeur avec une matière assignée n'a été trouvé.</p>}
+                                        {draggableItems.map(({ teacher, subject }) => (
+                                            <DraggableLessonItem key={`${teacher.id}-${subject.id}`} teacher={teacher} subject={subject} />
+                                        ))}
+                                        </ScrollArea>
+                                    </div>
+                                    <DroppableTrash isDraggingDeletable={isDraggingDeletable} />
+                                </div>
+                                <div className="lg:col-span-3 overflow-x-auto">
+                                   <TimetableGrid
+                                        lessons={localLessons}
+                                        wizardData={wizardData}
+                                        schoolDays={schoolDays}
+                                        timeSlots={timeSlots}
+                                        getSubjectColor={getSubjectColor}
+                                        isDraggingDeletable={isDraggingDeletable}
+                                        filterId={selectedClass.id}
+                                        filterType="class"
+                                   />
+                                </div>
+                            </div>
+                        </Card>
                     ) : (
                         <Card className="p-6 text-center text-muted-foreground">Veuillez sélectionner une classe pour afficher son emploi du temps.</Card>
                     )}
@@ -433,46 +507,26 @@ const TimetableDisplay: React.FC<TimetableDisplayProps> = ({ lessons, wizardData
             )}
           </TabsContent>
 
-          <TabsContent value="teachers" className="space-y-6 @media print:space-y-2">
+          <TabsContent value="teachers" className="space-y-6">
             {wizardData.teachers.map((teacher: TeacherWithDetails) => {
-               const schedule = localLessons.filter(l => l.teacherId === teacher.id).reduce((acc, lesson) => {
-                const day = dayEnumMap[lesson.day];
-                const time = format(parseISO(lesson.startTime), 'HH:mm');
-                if (!acc[day]) acc[day] = {};
-                acc[day][time] = lesson;
-                return acc;
-              }, {} as Record<string, Record<string, LessonWithDetails>>);
-
               return (
-                <Card key={teacher.id} className="p-6 break-inside-avoid @media print:shadow-none @media print:border-b-2">
+                <Card key={teacher.id} className="p-6 break-inside-avoid print:shadow-none print:border-b-2 print:break-after-page">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center space-x-2"><User className="text-green-500" size={20} /><h3 className="text-xl font-semibold">{teacher.name} {teacher.surname}</h3></div>
                     <div className="flex flex-wrap gap-1">{(teacher.subjects || []).map((s: any) => <Badge key={s.id} variant="outline" className="text-xs">{s.name}</Badge>)}</div>
                   </div>
-                  <div className="overflow-x-auto"><Table className="min-w-full">
-                    <TableHeader><TableRow><TableHead className="w-20">Horaires</TableHead>{schoolDays.map(day => <TableHead key={day} className="text-center min-w-32">{day}</TableHead>)}</TableRow></TableHeader>
-                    <TableBody>
-                      {timeSlots.map(time => (
-                        <TableRow key={time}>
-                          <TableCell className="font-medium bg-gray-50">{time}</TableCell>
-                          {schoolDays.map(day => {
-                            const lesson = schedule[day]?.[time];
-                            return (
-                              <TableCell key={`${day}-${time}`} className="p-1">
-                                {lesson ? (
-                                  <div className={`p-2 rounded-md border text-xs ${getSubjectColor(lesson.subject?.name || '')}`}>
-                                    <div className="font-semibold">{lesson.subject?.name || 'Matière Supprimée'}</div>
-                                    <div className="text-xs opacity-75">Classe {lesson.class?.name || 'N/A'}</div>
-                                    <div className="text-xs opacity-75">Salle {lesson.classroom?.name || 'N/A'}</div>
-                                  </div>
-                                ) : <div className="p-2 h-16 bg-gray-50 rounded-md border border-dashed border-gray-200"></div>}
-                              </TableCell>
-                            );
-                          })}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table></div>
+                  <div className="overflow-x-auto">
+                    <TimetableGrid
+                        lessons={localLessons}
+                        wizardData={wizardData}
+                        schoolDays={schoolDays}
+                        timeSlots={timeSlots}
+                        getSubjectColor={getSubjectColor}
+                        isDraggingDeletable={isDraggingDeletable}
+                        filterId={teacher.id}
+                        filterType="teacher"
+                    />
+                  </div>
                 </Card>
               );
             })}
