@@ -16,11 +16,12 @@ import ValidationStep from '@/components/wizard/ValidationStep';
 import TimetableDisplay from '@/components/schedule/TimetableDisplay';
 import { useAppDispatch, useAppSelector } from '@/hooks/redux-hooks';
 import { fetchClasses, selectAllClasses } from '@/lib/features/classes/classesSlice';
-import { fetchMatieres, selectAllMatieres } from '@/lib/features/matieres/matieresSlice';
+import { fetchMatieres, selectAllMatieres, updateMatiereDurations } from '@/lib/features/matieres/matieresSlice';
 import { fetchProfesseurs, selectAllProfesseurs } from '@/lib/features/professeurs/professeursSlice';
 import { fetchSalles, selectAllSalles } from '@/lib/features/salles/sallesSlice';
 import { fetchTimetable, selectAllLessons, getTimetableStatus } from '@/lib/features/timetable/timetableSlice';
 import type { SchoolData, WizardData } from '@/types/wizard';
+import type { Subject } from '@/types';
 
 const steps = [
   { id: 'school', title: 'Configuration Établissement', icon: School, description: 'Paramètres généraux de votre établissement' },
@@ -69,6 +70,7 @@ export default function WizardPage() {
       startTime: '08:00',
       endTime: '17:00',
       schoolDays: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+      sessionDuration: 60,
     });
   
     const wizardData: WizardData = {
@@ -108,9 +110,14 @@ export default function WizardPage() {
         case 'classes':
           return <ClassesForm data={classes} />;
         case 'subjects':
-          return <SubjectsForm data={subjects} />;
+          return <SubjectsForm 
+                    data={subjects} 
+                    onUpdateDurations={(subjectId: number, durations: number[]) => {
+                      dispatch(updateMatiereDurations({ id: subjectId, sessionDurations: durations }));
+                    }}
+                 />;
         case 'teachers':
-          return <TeachersForm data={teachers} schoolDays={schoolConfig.schoolDays} allSubjects={subjects} />;
+          return <TeachersForm data={teachers} allSubjects={subjects} />;
         case 'rooms':
           return <RoomsForm data={rooms} />;
         case 'validation':

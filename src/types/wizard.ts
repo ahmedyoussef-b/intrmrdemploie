@@ -5,7 +5,6 @@ export interface SchoolData {
   startTime: string;
   endTime: string;
   schoolDays: string[];
-  sessionDuration: number;
 }
 
 export interface WizardData {

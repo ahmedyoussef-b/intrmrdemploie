@@ -6,14 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Clock, Calendar, School } from 'lucide-react';
-
-interface SchoolData {
-  name: string;
-  startTime: string;
-  endTime: string;
-  schoolDays: string[];
-  sessionDuration: number;
-}
+import type { SchoolData } from '@/types/wizard';
 
 interface SchoolConfigFormProps {
   data: SchoolData;
@@ -74,7 +67,7 @@ const SchoolConfigForm: React.FC<SchoolConfigFormProps> = ({ data, onUpdate }) =
           <h3 className="text-lg font-semibold">Configuration horaire</h3>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <Label htmlFor="startTime">Heure de début</Label>
             <Input
@@ -95,26 +88,6 @@ const SchoolConfigForm: React.FC<SchoolConfigFormProps> = ({ data, onUpdate }) =
               onChange={(e) => handleInputChange('endTime', e.target.value)}
               className="mt-1"
             />
-          </div>
-          
-          <div>
-            <Label htmlFor="sessionDuration">Durée d'une séance (minutes)</Label>
-            <Select 
-              value={data.sessionDuration.toString()} 
-              onValueChange={(value) => handleInputChange('sessionDuration', parseInt(value))}
-            >
-              <SelectTrigger className="mt-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="45">45 minutes</SelectItem>
-                <SelectItem value="50">50 minutes</SelectItem>
-                <SelectItem value="55">55 minutes</SelectItem>
-                <SelectItem value="60">1 heure</SelectItem>
-                <SelectItem value="90">1h30</SelectItem>
-                <SelectItem value="120">2 heures</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
         </div>
       </Card>
@@ -154,7 +127,6 @@ const SchoolConfigForm: React.FC<SchoolConfigFormProps> = ({ data, onUpdate }) =
         <div className="space-y-2 text-sm text-green-700">
           <p><strong>Établissement:</strong> {data.name || 'Non défini'}</p>
           <p><strong>Horaires:</strong> {data.startTime} - {data.endTime}</p>
-          <p><strong>Durée séance:</strong> {data.sessionDuration} minutes</p>
           <p><strong>Jours de cours:</strong> {data.schoolDays.length} jour(s)</p>
         </div>
       </Card>
