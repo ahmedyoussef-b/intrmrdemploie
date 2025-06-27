@@ -140,40 +140,68 @@ const ValidationStep: React.FC<ValidationStepProps> = ({ wizardData, onGeneratio
         return;
     }
 
+    // This tracks hours per subject for a given class on a given day.
+    // Key: "classId-day-subjectId", Value: number of hours (in units of sessionDuration)
+    const dailyHoursTracker: Record<string, number> = {};
+
     classes.forEach(c => {
-      let dayIndex = 0;
-      let timeSlotIndex = 0;
+      // Create a flat array of all available slots for this class
+      const classSchedule: { day: Day, time: string }[] = [];
+      schoolDaysEnum.forEach(day => {
+          timeSlots.forEach(time => {
+              classSchedule.push({ day, time });
+          });
+      });
+
+      let scheduleIndex = 0;
+      
       subjects.forEach((subject) => {
         const teacherForSubject = teachers.find(t => (t.subjects || []).some(s => s.id === subject.id));
         if (!teacherForSubject) return; 
 
+        // Simple room assignment, can be improved later to handle conflicts
         const room = rooms.length > 0 ? rooms[lessonsToCreate.length % rooms.length] : undefined;
         if (!room) {
-          toast({ title: "Erreur", description: "Aucune salle disponible.", variant: "destructive" });
-          return;
+          console.error("No room available for lesson placement");
+          return; // Skip this subject if no room can be assigned
         }
         
         let hoursPlaced = 0;
-        while(hoursPlaced < subject.weeklyHours) {
+        const weeklyHoursInSlots = subject.weeklyHours; // Assuming 1 hour = 1 slot
+
+        while (hoursPlaced < weeklyHoursInSlots) {
+            // Safeguard against running out of slots
+            if (scheduleIndex >= classSchedule.length) {
+                console.error(`Not enough slots to place all lessons for class ${c.name}. Subject ${subject.name} might be incomplete.`);
+                break; // Break from the while loop for this subject
+            }
+
+            const { day } = classSchedule[scheduleIndex];
+            const trackerKey = `${c.id}-${day}-${subject.id}`;
+            const hoursOnDay = dailyHoursTracker[trackerKey] || 0;
+
+            // Determine how many hours/slots to try and place.
             let lessonSlots = 1;
             // Try to make 2-hour blocks for certain subjects if enough hours are left
-            if (['Éducation Physique et Sportive', 'Sciences de la Vie et de la Terre', 'Français'].includes(subject.name) && (subject.weeklyHours - hoursPlaced) >= 2) {
+            if (['Éducation Physique et Sportive', 'Sciences de la Vie et de la Terre', 'Français'].includes(subject.name) && (weeklyHoursInSlots - hoursPlaced) >= 2) {
                 lessonSlots = 2;
             }
 
-            // Ensure the multi-slot lesson doesn't wrap to the next day. If it does, just place a 1-slot lesson.
-            if (timeSlotIndex + lessonSlots > timeSlots.length) {
+            // If placing a 2h block exceeds the 2h/day limit, try with a 1h block.
+            if (hoursOnDay + lessonSlots > 2) {
                 lessonSlots = 1;
             }
-            
-            // If the current slot is the last of the day, ensure we only place a 1-slot lesson.
-            if (timeSlotIndex >= timeSlots.length) {
-                timeSlotIndex = 0;
-                dayIndex++;
+
+            // Check if even a 1h block violates the constraint, or if the block won't fit in the remaining day slots.
+            // If so, skip this slot and try the next one.
+            const isEndOfDay = (scheduleIndex % timeSlots.length) + lessonSlots > timeSlots.length;
+            if (hoursOnDay + lessonSlots > 2 || isEndOfDay) {
+                scheduleIndex++;
+                continue; // Try the next available slot in the schedule
             }
             
-            const day = schoolDaysEnum[dayIndex % schoolDaysEnum.length];
-            const time = timeSlots[timeSlotIndex];
+            // If all checks pass, place the lesson
+            const { time } = classSchedule[scheduleIndex];
             const [startHour, startMinute] = time.split(':').map(Number);
             
             const startTime = new Date(2024, 1, 1, startHour, startMinute);
@@ -190,8 +218,10 @@ const ValidationStep: React.FC<ValidationStepProps> = ({ wizardData, onGeneratio
                 classroomId: room.id 
             });
 
-            timeSlotIndex += lessonSlots;
+            // Update trackers for the successful placement
+            dailyHoursTracker[trackerKey] = hoursOnDay + lessonSlots;
             hoursPlaced += lessonSlots;
+            scheduleIndex += lessonSlots; // Move the index by the number of slots used
         }
       });
     });
