@@ -144,130 +144,126 @@ const ValidationStep: React.FC<ValidationStepProps> = ({ wizardData, onGeneratio
     // Global occupancy maps to prevent conflicts
     const teacherOccupancy: Record<string, boolean> = {}; // Key: "teacherId-day-time"
     const roomOccupancy: Record<string, boolean> = {}; // Key: "roomId-day-time"
+    const classOccupancy: Record<string, boolean> = {}; // Key: "classId-day-time"
 
     classes.forEach((c, classIndex) => {
-      setGenerationProgress(((classIndex + 1) / classes.length) * 50);
-      
-      const classSchedule: { day: Day, time: string }[] = [];
-      schoolDaysEnum.forEach(day => {
-          timeSlots.forEach(time => {
-              classSchedule.push({ day, time });
-          });
-      });
-      
-      const classOccupancy: Record<string, boolean> = {}; // Key: "day-time", specific to this class
+        const progressStart = ((classIndex) / classes.length) * 100;
+        setGenerationProgress(progressStart);
 
-      subjects.forEach((subject) => {
-        const potentialTeachers = teachers.filter(t => (t.subjects || []).some(s => s.id === subject.id));
-        if (potentialTeachers.length === 0) return;
+        const dailyClassHours: Record<string, number> = {}; // key: `day-subjectId` -> hours
 
-        let hoursPlaced = 0;
-        const weeklyHoursToPlace = subject.weeklyHours;
-        const dailyHoursTracker: Record<string, number> = {};
+        subjects.forEach((subject) => {
+            let hoursRemaining = subject.weeklyHours;
 
-        for (let scheduleIndex = 0; scheduleIndex < classSchedule.length && hoursPlaced < weeklyHoursToPlace; ) {
-            const { day, time } = classSchedule[scheduleIndex];
+            while (hoursRemaining > 0) {
+                const preferDoubleSlot = ['Éducation Physique et Sportive', 'Sciences de la Vie et de la Terre', 'Français'].includes(subject.name);
+                let attemptBlockSize = (preferDoubleSlot && hoursRemaining >= 2) ? 2 : 1;
+                let placed = false;
 
-            if(classOccupancy[`${day}-${time}`]) {
-                scheduleIndex++;
-                continue;
-            }
+                while (attemptBlockSize > 0 && !placed) {
+                    const shuffledDays = [...schoolDaysEnum].sort(() => Math.random() - 0.5);
 
-            const trackerKey = `${c.id}-${day}-${subject.id}`;
-            const hoursOnDay = dailyHoursTracker[trackerKey] || 0;
+                    for (const day of shuffledDays) {
+                        const dailyHoursKey = `${day}-${subject.id}`;
+                        const hoursAlreadyOnDay = dailyClassHours[dailyHoursKey] || 0;
+                        if (hoursAlreadyOnDay + attemptBlockSize > 2) {
+                            continue; // Would exceed daily limit for this subject
+                        }
 
-            const preferDoubleSlot = ['Éducation Physique et Sportive', 'Sciences de la Vie et de la Terre', 'Français'].includes(subject.name);
-            let attemptSlots = 1;
+                        for (let i = 0; i <= timeSlots.length - attemptBlockSize; i++) {
+                            const startTime = timeSlots[i];
+                            
+                            // 1. Check if the CLASS is available for the entire block
+                            let classAvailable = true;
+                            for (let j = 0; j < attemptBlockSize; j++) {
+                                if (classOccupancy[`${c.id}-${day}-${timeSlots[i+j]}`]) {
+                                    classAvailable = false;
+                                    break;
+                                }
+                            }
+                            if (!classAvailable) continue;
 
-            if (preferDoubleSlot && (weeklyHoursToPlace - hoursPlaced) >= 2 && (hoursOnDay === 0)) {
-              attemptSlots = 2;
-            } else if (hoursOnDay >= 2) {
-              scheduleIndex++;
-              continue;
-            }
-            
-            let finalSlots = 0;
-            let assignedTeacher: TeacherWithDetails | undefined;
-            let assignedRoom: Classroom | undefined;
+                            // 2. Find a TEACHER and ROOM available for the entire block
+                            const potentialTeachers = teachers.filter(t => (t.subjects || []).some(s => s.id === subject.id)).sort(() => Math.random() - 0.5);
+                            const potentialRooms = rooms.filter(r => r.capacity >= c.capacity).sort(() => Math.random() - 0.5);
+                            
+                            let assignedTeacher: TeacherWithDetails | undefined;
+                            let assignedRoom: Classroom | undefined;
+                            
+                            for (const teacher of potentialTeachers) {
+                                let teacherAvailable = true;
+                                for (let j = 0; j < attemptBlockSize; j++) {
+                                    if (teacherOccupancy[`${teacher.id}-${day}-${timeSlots[i+j]}`]) {
+                                        teacherAvailable = false;
+                                        break;
+                                    }
+                                }
+                                if (!teacherAvailable) continue;
 
-            while(attemptSlots > 0) {
-              let isBlockAvailable = false;
-              for (const teacher of potentialTeachers) {
-                const shuffledRooms = [...rooms].sort(() => Math.random() - 0.5);
-                for (const room of shuffledRooms) {
-                  if (room.capacity < c.capacity) continue;
+                                for (const room of potentialRooms) {
+                                    let roomAvailable = true;
+                                    for (let j = 0; j < attemptBlockSize; j++) {
+                                        if (roomOccupancy[`${room.id}-${day}-${timeSlots[i+j]}`]) {
+                                            roomAvailable = false;
+                                            break;
+                                        }
+                                    }
+                                    if (roomAvailable) {
+                                        assignedTeacher = teacher;
+                                        assignedRoom = room;
+                                        break;
+                                    }
+                                }
+                                if (assignedTeacher) break;
+                            }
 
-                  let canBook = true;
-                  for(let i=0; i < attemptSlots; i++) {
-                      const currentSlotIndex = scheduleIndex + i;
-                      if (currentSlotIndex >= classSchedule.length || classSchedule[currentSlotIndex].day !== day) {
-                          canBook = false;
-                          break;
-                      }
-                      const { day: d, time: t } = classSchedule[currentSlotIndex];
-                      if (teacherOccupancy[`${teacher.id}-${d}-${t}`] || roomOccupancy[`${room.id}-${d}-${t}`] || classOccupancy[`${d}-${t}`]) {
-                          canBook = false;
-                          break;
-                      }
-                  }
-                  if(canBook) {
-                      assignedTeacher = teacher;
-                      assignedRoom = room;
-                      isBlockAvailable = true;
-                      break; 
-                  }
+                            // 3. If found, create ONE lesson and book ALL slots
+                            if (assignedTeacher && assignedRoom) {
+                                const [h, m] = startTime.split(':').map(Number);
+                                const lessonStartDt = new Date(2024, 0, 1, h, m);
+                                const lessonEndDt = new Date(lessonStartDt.getTime() + attemptBlockSize * sessionDuration * 60000);
+
+                                lessonsToCreate.push({
+                                    name: `${subject.name} - ${c.abbreviation}`, day,
+                                    startTime: lessonStartDt, endTime: lessonEndDt,
+                                    subjectId: subject.id, classId: c.id,
+                                    teacherId: assignedTeacher.id, classroomId: assignedRoom.id
+                                });
+
+                                // Book all slots for class, teacher, and room
+                                for (let j = 0; j < attemptBlockSize; j++) {
+                                    const timeToBook = timeSlots[i+j];
+                                    classOccupancy[`${c.id}-${day}-${timeToBook}`] = true;
+                                    teacherOccupancy[`${assignedTeacher.id}-${day}-${timeToBook}`] = true;
+                                    roomOccupancy[`${assignedRoom.id}-${day}-${timeToBook}`] = true;
+                                }
+
+                                dailyClassHours[dailyHoursKey] = hoursAlreadyOnDay + attemptBlockSize;
+                                hoursRemaining -= attemptBlockSize;
+                                placed = true;
+                                break; // time loop
+                            }
+                        }
+                        if (placed) break; // day loop
+                    }
+                    if (!placed) {
+                        attemptBlockSize--; // If we couldn't place the larger block, try a smaller one
+                    }
                 }
-                if(isBlockAvailable) break;
-              }
-
-              if(isBlockAvailable) {
-                finalSlots = attemptSlots;
-                break;
-              } else {
-                attemptSlots--;
-              }
-            }
-
-            if (finalSlots > 0 && assignedTeacher && assignedRoom) {
-                const [startHour, startMinute] = time.split(':').map(Number);
-                const startTime = new Date(2024, 1, 1, startHour, startMinute);
-                const endTime = new Date(startTime.getTime() + (sessionDuration * finalSlots) * 60000);
-
-                lessonsToCreate.push({ 
-                    name: `${subject.name} - ${c.abbreviation}`, 
-                    day, 
-                    startTime, 
-                    endTime, 
-                    subjectId: subject.id, 
-                    classId: c.id, 
-                    teacherId: assignedTeacher.id, 
-                    classroomId: assignedRoom.id 
-                });
-
-                for(let i=0; i < finalSlots; i++) {
-                    const { day: d, time: t } = classSchedule[scheduleIndex + i];
-                    teacherOccupancy[`${assignedTeacher.id}-${d}-${t}`] = true;
-                    roomOccupancy[`${assignedRoom.id}-${d}-${t}`] = true;
-                    classOccupancy[`${d}-${t}`] = true;
+                
+                if (!placed) {
+                    // If we couldn't place any block size, give up on remaining hours for this subject
+                    console.warn(`Could not schedule ${hoursRemaining}h of ${subject.name} for class ${c.name}`);
+                    break; // while loop
                 }
-
-                dailyHoursTracker[trackerKey] = (dailyHoursTracker[trackerKey] || 0) + finalSlots;
-                hoursPlaced += finalSlots;
-                scheduleIndex += finalSlots;
-            } else {
-                scheduleIndex++;
             }
-        }
-      });
+        });
+        const progressEnd = ((classIndex + 1) / classes.length) * 100;
+        setGenerationProgress(progressEnd);
     });
-
-    await new Promise(resolve => setTimeout(resolve, 500));
-    setGenerationProgress(75);
 
     try {
       await dispatch(saveTimetable(lessonsToCreate)).unwrap();
-      await new Promise(resolve => setTimeout(resolve, 500));
-      setGenerationProgress(100);
       setIsGenerated(true);
       toast({ title: "Génération et Sauvegarde Réussies !", description: "L'emploi du temps a été sauvegardé." });
       onGenerationSuccess();
