@@ -141,7 +141,6 @@ const ValidationStep: React.FC<ValidationStepProps> = ({ wizardData, onGeneratio
         return;
     }
 
-    // New: Decompose weekly hours into sessions of 2h or 1h
     const getSessionsForSubject = (subject: Subject) => {
         const sessions = [];
         let hours = subject.weeklyHours;
@@ -167,112 +166,124 @@ const ValidationStep: React.FC<ValidationStepProps> = ({ wizardData, onGeneratio
     const roomOccupancy: Record<string, boolean> = {}; // Key: "roomId-day-time"
     const classOccupancy: Record<string, boolean> = {}; // Key: "classId-day-time"
 
-    const totalSteps = classes.reduce((acc, c) => acc + subjects.reduce((sAcc, s) => sAcc + getSessionsForSubject(s).length, 0), 0);
+    let totalSteps = 0;
+    
+    for (const c of classes) {
+        for (const subject of subjects) {
+            totalSteps += getSessionsForSubject(subject).length;
+        }
+    }
+
     let completedSteps = 0;
 
     for (const c of classes) {
         const dailyClassHours: Record<string, number> = {}; // key: `day-subjectId` -> hours
-
-        const shuffledSubjects = [...subjects].sort(() => Math.random() - 0.5);
-
-        for (const subject of shuffledSubjects) {
+        
+        const allSessionsForClass: { subject: Subject; duration: number }[] = [];
+        for (const subject of subjects) {
             const sessions = getSessionsForSubject(subject);
+            for (const duration of sessions) {
+                allSessionsForClass.push({ subject, duration });
+            }
+        }
 
-            for (const sessionHours of sessions) {
-                completedSteps++;
-                setGenerationProgress((completedSteps / totalSteps) * 100);
+        // Prioritize longer sessions as they are harder to place
+        allSessionsForClass.sort((a, b) => b.duration - a.duration);
+        
+        for (const { subject, duration: sessionHours } of allSessionsForClass) {
+            completedSteps++;
+            setGenerationProgress((completedSteps / totalSteps) * 100);
 
-                let placed = false;
-                const attemptBlockSize = sessionHours;
-                const shuffledDays = [...schoolDaysEnum].sort(() => Math.random() - 0.5);
+            let placed = false;
+            const attemptBlockSize = sessionHours;
+            const shuffledDays = [...schoolDaysEnum].sort(() => Math.random() - 0.5);
 
-                for (const day of shuffledDays) {
-                    const dailyHoursKey = `${day}-${subject.id}`;
-                    const hoursAlreadyOnDay = dailyClassHours[dailyHoursKey] || 0;
-                    if (hoursAlreadyOnDay + attemptBlockSize > 2) {
-                        continue;
+            for (const day of shuffledDays) {
+                const dailyHoursKey = `${day}-${subject.id}`;
+                const hoursAlreadyOnDay = dailyClassHours[dailyHoursKey] || 0;
+                if (hoursAlreadyOnDay + attemptBlockSize > 2) {
+                    continue;
+                }
+
+                for (let i = 0; i <= timeSlots.length - attemptBlockSize; i++) {
+                    const startTime = timeSlots[i];
+                    
+                    let isClassAvailable = true;
+                    for (let j = 0; j < attemptBlockSize; j++) {
+                        if (classOccupancy[`${c.id}-${day}-${timeSlots[i+j]}`]) {
+                            isClassAvailable = false;
+                            break;
+                        }
                     }
+                    if (!isClassAvailable) continue;
 
-                    for (let i = 0; i <= timeSlots.length - attemptBlockSize; i++) {
-                        const startTime = timeSlots[i];
-                        
-                        let classAvailable = true;
+                    const potentialTeachers = teachers
+                        .filter(t => (t.subjects || []).some(s => s.id === subject.id))
+                        .sort(() => Math.random() - 0.5);
+                    
+                    let assignedTeacher: TeacherWithDetails | undefined;
+                    let assignedRoom: Classroom | undefined;
+                    
+                    for (const teacher of potentialTeachers) {
+                        let isTeacherAvailable = true;
                         for (let j = 0; j < attemptBlockSize; j++) {
-                            if (classOccupancy[`${c.id}-${day}-${timeSlots[i+j]}`]) {
-                                classAvailable = false;
+                            if (teacherOccupancy[`${teacher.id}-${day}-${timeSlots[i+j]}`]) {
+                                isTeacherAvailable = false;
                                 break;
                             }
                         }
-                        if (!classAvailable) continue;
+                        if (!isTeacherAvailable) continue;
 
-                        const potentialTeachers = teachers
-                            .filter(t => (t.subjects || []).some(s => s.id === subject.id))
+                        const potentialRooms = rooms
+                            .filter(r => r.capacity >= c.capacity)
                             .sort(() => Math.random() - 0.5);
-                        
-                        let assignedTeacher: TeacherWithDetails | undefined;
-                        let assignedRoom: Classroom | undefined;
-                        
-                        for (const teacher of potentialTeachers) {
-                            let teacherAvailable = true;
+
+                        for (const room of potentialRooms) {
+                            let isRoomAvailable = true;
                             for (let j = 0; j < attemptBlockSize; j++) {
-                                if (teacherOccupancy[`${teacher.id}-${day}-${timeSlots[i+j]}`]) {
-                                    teacherAvailable = false;
+                                if (roomOccupancy[`${room.id}-${day}-${timeSlots[i+j]}`]) {
+                                    isRoomAvailable = false;
                                     break;
                                 }
                             }
-                            if (!teacherAvailable) continue;
-
-                            const potentialRooms = rooms
-                                .filter(r => r.capacity >= c.capacity)
-                                .sort(() => Math.random() - 0.5);
-
-                            for (const room of potentialRooms) {
-                                let roomAvailable = true;
-                                for (let j = 0; j < attemptBlockSize; j++) {
-                                    if (roomOccupancy[`${room.id}-${day}-${timeSlots[i+j]}`]) {
-                                        roomAvailable = false;
-                                        break;
-                                    }
-                                }
-                                if (roomAvailable) {
-                                    assignedTeacher = teacher;
-                                    assignedRoom = room;
-                                    break;
-                                }
+                            if (isRoomAvailable) {
+                                assignedTeacher = teacher;
+                                assignedRoom = room;
+                                break;
                             }
-                            if (assignedTeacher) break;
                         }
-
-                        if (assignedTeacher && assignedRoom) {
-                            const [h, m] = startTime.split(':').map(Number);
-                            const lessonStartDt = new Date(2024, 0, 1, h, m);
-                            const lessonEndDt = new Date(lessonStartDt.getTime() + attemptBlockSize * sessionDurationMinutes * 60000);
-
-                            lessonsToCreate.push({
-                                name: `${subject.name} - ${c.abbreviation}`, day,
-                                startTime: lessonStartDt, endTime: lessonEndDt,
-                                subjectId: subject.id, classId: c.id,
-                                teacherId: assignedTeacher.id, classroomId: assignedRoom.id
-                            });
-
-                            for (let j = 0; j < attemptBlockSize; j++) {
-                                const timeToBook = timeSlots[i+j];
-                                classOccupancy[`${c.id}-${day}-${timeToBook}`] = true;
-                                teacherOccupancy[`${assignedTeacher.id}-${day}-${timeToBook}`] = true;
-                                roomOccupancy[`${assignedRoom.id}-${day}-${timeToBook}`] = true;
-                            }
-
-                            dailyClassHours[dailyHoursKey] = hoursAlreadyOnDay + attemptBlockSize;
-                            placed = true;
-                            break; 
-                        }
+                        if (assignedTeacher) break;
                     }
-                    if (placed) break;
-                }
 
-                if (!placed) {
-                    console.warn(`Could not schedule a ${sessionHours}h session of ${subject.name} for class ${c.name}`);
+                    if (assignedTeacher && assignedRoom) {
+                        const [h, m] = startTime.split(':').map(Number);
+                        const lessonStartDt = new Date(2024, 0, 1, h, m);
+                        const lessonEndDt = new Date(lessonStartDt.getTime() + attemptBlockSize * sessionDurationMinutes * 60000);
+
+                        lessonsToCreate.push({
+                            name: `${subject.name} - ${c.abbreviation}`, day,
+                            startTime: lessonStartDt, endTime: lessonEndDt,
+                            subjectId: subject.id, classId: c.id,
+                            teacherId: assignedTeacher.id, classroomId: assignedRoom.id
+                        });
+
+                        for (let j = 0; j < attemptBlockSize; j++) {
+                            const timeToBook = timeSlots[i+j];
+                            classOccupancy[`${c.id}-${day}-${timeToBook}`] = true;
+                            teacherOccupancy[`${assignedTeacher.id}-${day}-${timeToBook}`] = true;
+                            roomOccupancy[`${assignedRoom.id}-${day}-${timeToBook}`] = true;
+                        }
+
+                        dailyClassHours[dailyHoursKey] = hoursAlreadyOnDay + attemptBlockSize;
+                        placed = true;
+                        break; 
+                    }
                 }
+                if (placed) break;
+            }
+
+            if (!placed) {
+                console.warn(`Could not schedule a ${sessionHours}h session of ${subject.name} for class ${c.name}`);
             }
         }
     }
