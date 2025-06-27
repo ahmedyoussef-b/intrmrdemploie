@@ -1,15 +1,95 @@
 
 'use client';
 import { Button } from '@/components/ui/button';
-import { UserCircle, Bell, Menu } from 'lucide-react';
+import { UserCircle, Bell, Menu, Home, Sparkles, Settings, Puzzle, ChevronRight } from 'lucide-react';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import Link from 'next/link';
 import ScolaTimeLogo from './ScolaTimeLogo';
+import type { LucideIcon } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { usePathname } from 'next/navigation';
+import { cn } from '@/lib/utils';
 
-const navItems = [
-  { href: '/', label: 'Tableau de Bord' },
-  { href: '/wizard', label: 'Générateur' },
+interface NavItem {
+  href?: string;
+  label: string;
+  icon: LucideIcon;
+  subItems?: NavItem[];
+}
+
+const navItems: NavItem[] = [
+  { href: '/', label: 'Tableau de Bord', icon: Home },
+  { href: '/wizard', label: 'Générateur', icon: Sparkles },
+  {
+    label: 'Administration',
+    icon: Settings,
+    subItems: [
+      { href: '/admin', label: 'Panneau Admin', icon: Settings },
+      { href: '/admin/constraints', label: 'Contraintes', icon: Puzzle },
+    ],
+  },
 ];
+
+function MobileNav() {
+  const pathname = usePathname();
+  const [openSubMenus, setOpenSubMenus] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const activeSubMenu = navItems.find(item => 
+      item.subItems?.some(sub => sub.href && pathname.startsWith(sub.href))
+    );
+    if (activeSubMenu) {
+      setOpenSubMenus(prev => ({ ...prev, [activeSubMenu.label]: true }));
+    }
+  }, [pathname]);
+  
+  const toggleSubMenu = (label: string) => {
+    setOpenSubMenus(prev => ({ ...prev, [label]: !prev[label] }));
+  };
+
+  const NavItem = ({ item }: { item: NavItem }) => {
+    if (item.subItems) {
+      const isOpen = openSubMenus[item.label];
+      return (
+        <div>
+          <button
+            onClick={() => toggleSubMenu(item.label)}
+            className="flex w-full items-center justify-between text-lg font-semibold"
+          >
+            <span className="flex items-center gap-2"><item.icon className="h-5 w-5" />{item.label}</span>
+            <ChevronRight className={cn('h-5 w-5 transition-transform', isOpen && 'rotate-90')} />
+          </button>
+          {isOpen && (
+            <div className="pl-4 mt-2 space-y-2">
+              {item.subItems.map(subItem => (
+                <Link key={subItem.label} href={subItem.href!} className="flex items-center gap-2 text-muted-foreground hover:text-foreground">
+                  <subItem.icon className="h-5 w-5" />
+                  {subItem.label}
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+    return (
+      <Link href={item.href!} className="flex items-center gap-2 text-lg font-semibold text-muted-foreground hover:text-foreground">
+        <item.icon className="h-5 w-5" />
+        {item.label}
+      </Link>
+    );
+  };
+
+  return (
+     <nav className="grid gap-6 text-lg font-medium mt-8">
+      <Link href="/" className="flex items-center gap-2 text-lg font-semibold mb-4">
+        <ScolaTimeLogo className="h-8 w-auto text-primary" />
+        <span>ShudWelcome</span>
+      </Link>
+      {navItems.map(item => <NavItem key={item.label} item={item} />)}
+    </nav>
+  )
+}
 
 export function AppHeader() {
   return (
@@ -23,17 +103,7 @@ export function AppHeader() {
             </Button>
           </SheetTrigger>
           <SheetContent side="left">
-            <nav className="grid gap-6 text-lg font-medium mt-8">
-              <Link href="/" className="flex items-center gap-2 text-lg font-semibold mb-4">
-                <ScolaTimeLogo className="h-8 w-auto text-primary" />
-                <span>ShudWelcome</span>
-              </Link>
-              {navItems.map((item) => (
-                 <Link key={item.href} href={item.href} className="text-muted-foreground hover:text-foreground">
-                   {item.label}
-                 </Link>
-              ))}
-            </nav>
+            <MobileNav />
           </SheetContent>
         </Sheet>
       </div>

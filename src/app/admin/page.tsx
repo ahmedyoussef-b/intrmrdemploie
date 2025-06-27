@@ -4,8 +4,8 @@ import Link from "next/link";
 import { Puzzle, Wand2, Settings } from "lucide-react";
 
 const adminSections = [
-  { title: "Générateur d'Emploi du Temps", href: "/wizard", icon: Wand2, description: "Utiliser l'assistant pour créer un emploi du temps." },
-  { title: "Gérer les Contraintes", href: "/admin/constraints", icon: Puzzle, description: "Définir les contraintes pour la génération." },
+  { title: "Générateur d'Emploi du Temps", href: "/wizard", icon: Wand2, description: "Lancer l'assistant pour configurer et générer un emploi du temps optimisé." },
+  { title: "Gérer les Contraintes", href: "/admin/constraints", icon: Puzzle, description: "Définir les contraintes pédagogiques et de ressources pour la génération." },
 ];
 
 export default function AdminDashboardPage() {
@@ -17,7 +17,7 @@ export default function AdminDashboardPage() {
           Panneau d'Administration
         </h1>
         <p className="text-lg text-muted-foreground mt-1">
-          Gérez les paramètres avancés de la planification.
+          Gérez les paramètres avancés et lancez les outils de planification.
         </p>
       </header>
       
