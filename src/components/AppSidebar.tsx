@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { ScolaTimeLogo } from './ScolaTimeLogo';
+import ScolaTimeLogo from './ScolaTimeLogo';
 import { Home, Sparkles, Settings, Puzzle } from 'lucide-react';
 
 const navItems = [

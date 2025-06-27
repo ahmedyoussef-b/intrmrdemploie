@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { UserCircle, Bell, Menu } from 'lucide-react';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import Link from 'next/link';
-import { ScolaTimeLogo } from './ScolaTimeLogo';
+import ScolaTimeLogo from './ScolaTimeLogo';
 
 const navItems = [
   { href: '/', label: 'Tableau de Bord' },
