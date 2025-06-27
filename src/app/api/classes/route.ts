@@ -1,3 +1,4 @@
+
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { z } from 'zod';
@@ -41,15 +42,32 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     console.log('📝 POST /api/classes: Request body:', body);
-    const validatedData = createClassSchema.parse(body);
-    console.log('✅ POST /api/classes: Validation successful:', validatedData);
+    
+    // The `gradeId` from the form is actually the 'level' of the grade.
+    const { gradeId: gradeLevel, ...classData } = createClassSchema.parse(body);
+    console.log('✅ POST /api/classes: Validation successful:', { gradeLevel, ...classData });
 
+    // Find the actual grade record from the database using the level.
+    const grade = await prisma.grade.findUnique({
+      where: { level: gradeLevel },
+    });
+
+    if (!grade) {
+      console.error(`❌ POST /api/classes: Invalid grade level provided: ${gradeLevel}`);
+      return NextResponse.json({ message: `Le niveau (grade) spécifié avec le niveau ${gradeLevel} n'existe pas.` }, { status: 400 });
+    }
+
+    // Create the new class using the correct grade ID from the database.
     const newClass = await prisma.class.create({
-      data: validatedData,
+      data: {
+        ...classData,
+        gradeId: grade.id, // Use the actual foreign key
+      },
       include: {
         grade: true,
       },
     });
+
     console.log('⬅️ POST /api/classes: Success, created class:', newClass);
     return NextResponse.json(newClass, { status: 201 });
   } catch (error: any) {
