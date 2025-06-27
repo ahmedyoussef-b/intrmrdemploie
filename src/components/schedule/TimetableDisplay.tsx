@@ -153,6 +153,37 @@ const generateTimeSlots = (
     return slots;
 };
 
+const DroppableCell = ({
+  filterId,
+  day,
+  time,
+  cellData,
+  getSubjectColor,
+}: {
+  filterId: number | string;
+  day: string;
+  time: string;
+  cellData: { lesson: LessonWithDetails | null; rowSpan: number };
+  getSubjectColor: (subjectName: string) => string;
+}) => {
+  const droppableId = `droppable-cell__${filterId}__${day}__${time}`;
+  const { setNodeRef, isOver } = useDroppable({ id: droppableId });
+
+  return (
+    <TableCell
+      ref={setNodeRef}
+      rowSpan={cellData.rowSpan}
+      className={cn("p-1 align-top relative", isOver && "bg-blue-100 ring-2 ring-blue-400")}
+    >
+      {cellData.lesson ? (
+        <DraggableLessonGridItem lesson={cellData.lesson} getSubjectColor={getSubjectColor} />
+      ) : (
+        <div className="p-2 h-20 bg-gray-50 rounded-md border border-dashed border-gray-200" />
+      )}
+    </TableCell>
+  );
+};
+
 const TimetableGrid = ({
     lessons,
     wizardData,
@@ -219,23 +250,16 @@ const TimetableGrid = ({
                             if (!cellData || cellData.isPlaceholder) {
                                 return null;
                             }
-
-                            const droppableId = `droppable-cell__${filterId}__${day}__${time}`;
-                            const { setNodeRef, isOver } = useDroppable({ id: droppableId });
-
+                            
                             return (
-                                <TableCell
-                                    ref={setNodeRef}
+                                <DroppableCell
                                     key={`${day}-${time}`}
-                                    rowSpan={cellData.rowSpan}
-                                    className={cn("p-1 align-top relative", isOver && "bg-blue-100 ring-2 ring-blue-400")}
-                                >
-                                    {cellData.lesson ? (
-                                        <DraggableLessonGridItem lesson={cellData.lesson} getSubjectColor={getSubjectColor} />
-                                    ) : (
-                                        <div className="p-2 h-20 bg-gray-50 rounded-md border border-dashed border-gray-200"></div>
-                                    )}
-                                </TableCell>
+                                    filterId={filterId}
+                                    day={day}
+                                    time={time}
+                                    cellData={cellData}
+                                    getSubjectColor={getSubjectColor}
+                                />
                             );
                         })}
                     </TableRow>
@@ -426,13 +450,13 @@ const TimetableDisplay: React.FC<TimetableDisplayProps> = ({ lessons, wizardData
   return (
     <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="space-y-6">
-        <Card className="p-6 print:shadow-none print:border-none">
+        <Card className="p-6 print-hidden">
           <div className="flex justify-between items-center">
             <div>
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Emplois du Temps - {wizardData.school.name}</h2>
               <p className="text-gray-600">Planification interactive</p>
             </div>
-            <div className="flex space-x-3 print-hidden">
+            <div className="flex space-x-3">
               <Button variant="outline" onClick={exportToPDF}><Printer size={16} className="mr-2" />Imprimer / Exporter PDF</Button>
             </div>
           </div>
@@ -470,7 +494,7 @@ const TimetableDisplay: React.FC<TimetableDisplayProps> = ({ lessons, wizardData
                                 <CardTitle>Emploi du temps - Classe {selectedClass.name}</CardTitle>
                             </CardHeader>
                             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                                <div className="lg:col-span-1 flex-col print-hidden">
+                                <div className="lg:col-span-1 flex flex-col print-hidden">
                                     <div>
                                         <h4 className="font-semibold mb-3">Matières à placer</h4>
                                         <ScrollArea className={cn("h-96 rounded-md border p-3", isDraggingDeletable && "pointer-events-none")}>
